@@ -1,0 +1,167 @@
+{
+  "app_name": "Brevo CRM & Analytics",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A focused, clutter-free mobile command center for marketers, turning dense campaign data into highly readable insights.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#111111",
+    "surfaceSecondary": "#F4F5F7",
+    "onSurfaceSecondary": "#4A4A4C",
+    "surfaceTertiary": "#EAEBEF",
+    "onSurfaceTertiary": "#69696C",
+    "surfaceInverse": "#1A1A1A",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#111111",
+    "brandPrimary": "#111111",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#4A4A4C",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#EAEBEF",
+    "onBrandTertiary": "#111111",
+    "success": "#285C4D",
+    "onSuccess": "#FFFFFF",
+    "warning": "#8A5A19",
+    "onWarning": "#FFFFFF",
+    "error": "#8B2C24",
+    "onError": "#FFFFFF",
+    "border": "#E1E2E5",
+    "borderStrong": "#C0C2C8",
+    "divider": "#F0F1F3"
+  },
+  "typography": {
+    "displayFontFamily": "Geist",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Use iOS-native spacing rhythms with generous padding around content. Avoid dense dashboard layouts; utilize negative space to frame content without extra dividers where spacing suffices.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Bottom tab bar when content scrolls behind it",
+      "Sticky headers over scrolling content (Campaigns, Contacts)",
+      "Bottom-sheet headers"
+    ],
+    "dont's": [
+      "Form fields",
+      "Body text regions",
+      "List rows or general cards"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Campaigns",
+      "purpose": "Provide a quick overview of email marketing performance through vertical KPI scorecards and a scrollable list of recent campaigns.",
+      "states": {
+        "loading": "Full-screen layout with skeleton shapes mimicking the KPI cards and list rows.",
+        "empty": "Subtle abstract icon (e.g., outlined envelope) + 'No campaigns found' + CTA to visit Brevo web.",
+        "error": "Readable error message detailing the API failure + Retry button."
+      },
+      "layout": "Sticky glass header with large title. Global metrics (e.g., Total Sent, Avg Open Rate) at the top as 2-column KPI scorecards with bold typography. Below, a vertical stack of campaign cards. Each card displays campaign name, date, and mini stats (Open %, Click %) without horizontal scrolling."
+    },
+    {
+      "name": "Campaign Detail",
+      "purpose": "Deep dive into a single campaign's performance metrics.",
+      "states": {
+        "loading": "Centered spinner + skeleton layout.",
+        "empty": "Subtle icon + 'No data available for this campaign.'",
+        "error": "Readable error message + Retry button."
+      },
+      "layout": "Sticky glass header with campaign name. A hero card with a subtle `brandTertiary` background containing the main conversion metric. Below, a vertical stack of full-width rows for Sent, Delivered, Opens, and Clicks, utilizing small horizontal percentage bars."
+    },
+    {
+      "name": "Contacts",
+      "purpose": "Search and browse the CRM contact base efficiently.",
+      "states": {
+        "loading": "Skeleton rows of circles (avatars) and rectangles (text).",
+        "empty": "Subtle icon + 'No contacts found.' + Primary CTA to 'Add Contact'.",
+        "error": "Readable error message + Retry button."
+      },
+      "layout": "Sticky glass header incorporating a search bar. A flat list of contacts utilizing avatar initials in `brandTertiary` circles (do not use generic user icons). Contact rows display email as primary and name as secondary text, separated by a subtle divider."
+    },
+    {
+      "name": "Contact Detail",
+      "purpose": "View full attributes and individual campaign interaction stats for a single contact.",
+      "states": {
+        "loading": "Skeleton for profile header and stat rows.",
+        "empty": "N/A - loaded from previous screen, but handle missing stats gracefully.",
+        "error": "Readable error message + Retry button."
+      },
+      "layout": "Large profile header with initials avatar. Clear sections for 'Contact Info' (Email, Phone) and 'Activity' (Campaigns received). Floating primary CTA at the bottom right (FAB) or sticky bottom button to 'Edit Contact'."
+    },
+    {
+      "name": "Create/Edit Contact",
+      "purpose": "Form to add or modify a contact's details in the Brevo CRM.",
+      "states": {
+        "loading": "Transparent overlay with spinner during submission.",
+        "empty": "N/A",
+        "error": "Inline error messages below relevant fields."
+      },
+      "layout": "Single column form with generous vertical padding. Labels sit above inputs (never floating). Inputs use `surfaceSecondary` background and highlight with `borderStrong` on focus. The 'Save Contact' button is sticky at the bottom inside a KeyboardAvoidingView."
+    },
+    {
+      "name": "Settings",
+      "purpose": "Configure the app and authenticate with the Brevo API.",
+      "states": {
+        "loading": "Spinner during API key validation.",
+        "empty": "N/A",
+        "error": "Status banner indicating invalid API key."
+      },
+      "layout": "Hero banner image (`settings_hero`) at the top, layered with a top-to-bottom gradient scrim (`transparent` to `surfaceInverse`) to ensure readability if text is overlaid. Below, an input field for the Brevo API Key, a validation status banner, and a sticky 'Save Key' CTA. Simple footer displaying app version."
+    }
+  ],
+  "images": {
+    "settings_hero": {
+      "url": "https://images.unsplash.com/photo-1497215842964-222b430dc094?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwxfHxtaW5pbWFsJTIwb2ZmaWNlJTIwd29ya3NwYWNlJTIwY2xlYW58ZW58MHx8fHwxNzgxOTE4MjYwfDA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwzfHxtaW5pbWFsJTIwb2ZmaWNlJTIwd29ya3NwYWNlJTIwY2xlYW58ZW58MHx8fHwxNzgxOTE4MjYwfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Minimal clean office workspace desk with iMac"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the 'Clean & minimal (light)' vibe requested by the user. Ensure the UI feels like a premium iOS-native tool (Personality 1).",
+    "Use the near-black brand color (`#111111`) for primary actions and accents to avoid the generic blue/purple 'AI' look.",
+    "For the Campaigns screen, prioritize a vertical layout for KPI scorecards based on mobile dashboard best practices. Avoid horizontal scrolling for primary KPIs; use a vertical stack.",
+    "Ensure touch targets are at least 44pt for all interactive elements (buttons, list items, tabs).",
+    "In Contact lists, always use initials wrapped in a `brandTertiary` tinted circle for avatars. Do not use generic user or person icons.",
+    "Apply Glassmorphism to the bottom tab bar and sticky headers over scrolling content (Campaigns list, Contacts list) to give a native iOS feel.",
+    "Form fields in Create/Edit Contact must have labels above the inputs, not floating. The submit button must be sticky at the bottom.",
+    "Ensure the Settings screen uses the provided `settings_hero` image at the top with a mandatory top-to-bottom gradient scrim (`transparent` to `surfaceInverse`) to ensure high contrast.",
+    "No emojis are allowed anywhere in the system UI.",
+    "Maintain WCAG AA contrast ratios, especially for small text like percentages or statuses."
+  ]
+}
