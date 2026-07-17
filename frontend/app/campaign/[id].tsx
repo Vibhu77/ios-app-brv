@@ -13,7 +13,7 @@ export default function CampaignDetail() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { apiKey } = useBrevo();
+  const { token } = useBrevo();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export default function CampaignDetail() {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, id]);
+  }, [token, id]);
 
   React.useEffect(() => {
     load();

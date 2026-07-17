@@ -13,20 +13,20 @@ import { nf, pctStr, pctVal, fmtDate } from "@/src/lib/format";
 export default function CampaignsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { apiKey, isConnected, account } = useBrevo();
+  const { token, isConnected, account } = useBrevo();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!apiKey) {
+    if (!token) {
       setLoading(false);
       return;
     }
     setError(null);
     try {
-      const res = await brevo.listCampaigns(apiKey);
+      const res = await brevo.listCampaigns(token);
       setCampaigns(res?.campaigns || []);
     } catch (e: any) {
       setError(e?.message || "Failed to load campaigns");
@@ -34,7 +34,7 @@ export default function CampaignsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [apiKey]);
+  }, [token]);
 
   useFocusEffect(
     useCallback(() => {

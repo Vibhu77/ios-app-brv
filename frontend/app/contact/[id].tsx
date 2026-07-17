@@ -24,7 +24,7 @@ export default function ContactDetail() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { apiKey } = useBrevo();
+  const { token } = useBrevo();
   const [contact, setContact] = useState<Contact | null>(null);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -34,10 +34,10 @@ export default function ContactDetail() {
     setLoading(true);
     setError(null);
     try {
-      const c = await brevo.getContact(apiKey, id);
+      const c = await brevo.getContact(token, id);
       setContact(c);
       try {
-        const s = await brevo.getContactStats(apiKey, id);
+        const s = await brevo.getContactStats(token, id);
         setStats(s);
       } catch {
         setStats(null);
@@ -47,7 +47,7 @@ export default function ContactDetail() {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, id]);
+  }, [token, id]);
 
   useFocusEffect(
     useCallback(() => {

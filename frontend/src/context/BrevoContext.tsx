@@ -1,88 +1,104 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
 import { storage } from "@/src/utils/storage";
-import { brevo } from "@/src/lib/brevo";
+import { brevo, LOGIN_URL, Account } from "@/src/lib/brevo";
 
-const KEY = "brevo_api_key";
+WebBrowser.maybeCompleteAuthSession();
 
-type Account = {
-  email?: string;
-  companyName?: string;
-  firstName?: string;
-  lastName?: string;
-} | null;
+const KEY = "brevo_session_token";
 
 type Ctx = {
-  apiKey: string;
-  account: Account;
-  loading: boolean; // still loading key from storage
+  token: string;
+  account: Account | null;
+  loading: boolean;
   isConnected: boolean;
-  saveKey: (key: string) => Promise<{ ok: boolean; error?: string }>;
-  clearKey: () => Promise<void>;
-  refreshAccount: () => Promise<void>;
+  login: () => Promise<{ ok: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  setSession: (token: string) => Promise<void>;
 };
 
 const BrevoContext = createContext<Ctx>({} as Ctx);
 
 export function BrevoProvider({ children }: { children: React.ReactNode }) {
-  const [apiKey, setApiKey] = useState("");
-  const [account, setAccount] = useState<Account>(null);
+  const [token, setToken] = useState("");
+  const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadAccount = useCallback(async (key: string) => {
-    if (!key) {
+  const hydrate = useCallback(async (t: string) => {
+    if (!t) {
       setAccount(null);
       return;
     }
     try {
-      const acc = await brevo.getAccount(key);
-      setAccount(acc);
-    } catch {
-      setAccount(null);
+      const res = await brevo.me(t);
+      setAccount(res?.account || null);
+    } catch (e: any) {
+      // Invalid/expired session
+      if (e?.status === 401) {
+        await storage.secureRemove(KEY);
+        setToken("");
+        setAccount(null);
+      }
     }
   }, []);
 
   useEffect(() => {
     (async () => {
-      const stored = await storage.secureGet<string>(KEY, "");
-      const key = stored || "";
-      setApiKey(key);
-      await loadAccount(key);
+      const stored = (await storage.secureGet<string>(KEY, "")) || "";
+      setToken(stored);
+      await hydrate(stored);
       setLoading(false);
     })();
-  }, [loadAccount]);
+  }, [hydrate]);
 
-  const saveKey = useCallback(async (key: string) => {
-    const trimmed = key.trim();
+  const setSession = useCallback(
+    async (t: string) => {
+      await storage.secureSet(KEY, t);
+      setToken(t);
+      await hydrate(t);
+    },
+    [hydrate]
+  );
+
+  const login = useCallback(async () => {
+    const redirect = Linking.createURL("oauth-complete");
     try {
-      const acc = await brevo.getAccount(trimmed);
-      await storage.secureSet(KEY, trimmed);
-      setApiKey(trimmed);
-      setAccount(acc);
-      return { ok: true };
+      const result = await WebBrowser.openAuthSessionAsync(LOGIN_URL(redirect), redirect);
+      if (result.type === "success" && result.url) {
+        const parsed = Linking.parse(result.url);
+        const err = parsed.queryParams?.error as string | undefined;
+        const t = parsed.queryParams?.token as string | undefined;
+        if (err) return { ok: false, error: decodeURIComponent(err) };
+        if (t) {
+          await setSession(t);
+          return { ok: true };
+        }
+        return { ok: false, error: "No session returned" };
+      }
+      if (result.type === "cancel" || result.type === "dismiss") {
+        return { ok: false, error: "Sign in cancelled" };
+      }
+      return { ok: false, error: "Sign in failed" };
     } catch (e: any) {
-      return { ok: false, error: e?.message || "Invalid API key" };
+      return { ok: false, error: e?.message || "Sign in failed" };
     }
-  }, []);
+  }, [setSession]);
 
-  const clearKey = useCallback(async () => {
+  const logout = useCallback(async () => {
+    try {
+      if (token) await brevo.logout(token);
+    } catch {
+      // ignore
+    }
     await storage.secureRemove(KEY);
-    setApiKey("");
+    setToken("");
     setAccount(null);
-  }, []);
-
-  const refreshAccount = useCallback(() => loadAccount(apiKey), [apiKey, loadAccount]);
+  }, [token]);
 
   return (
     <BrevoContext.Provider
-      value={{
-        apiKey,
-        account,
-        loading,
-        isConnected: !!apiKey,
-        saveKey,
-        clearKey,
-        refreshAccount,
-      }}
+      value={{ token, account, loading, isConnected: !!token, login, logout, setSession }}
     >
       {children}
     </BrevoContext.Provider>

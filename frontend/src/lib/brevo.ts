@@ -1,13 +1,16 @@
-// Thin client for our FastAPI Brevo proxy. The on-device API key is sent per request
-// via the X-Brevo-Key header; the backend forwards it to api.brevo.com.
-const BASE = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/brevo`;
+// Client for our FastAPI backend. Auth is via a session token issued after Brevo OAuth.
+// The session token is sent as `Authorization: Bearer <token>` on every request.
+const API = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
 
-async function req(path: string, apiKey: string, opts: RequestInit = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+export const LOGIN_URL = (redirect: string) =>
+  `${API}/auth/brevo/login?redirect=${encodeURIComponent(redirect)}`;
+
+async function req(path: string, token: string, opts: RequestInit = {}) {
+  const res = await fetch(`${API}${path}`, {
     ...opts,
     headers: {
       "Content-Type": "application/json",
-      "X-Brevo-Key": apiKey,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(opts.headers || {}),
     },
   });
@@ -19,20 +22,18 @@ async function req(path: string, apiKey: string, opts: RequestInit = {}) {
       (detail && (detail.message || (typeof detail === "string" ? detail : null))) ||
       data?.message ||
       `Request failed (${res.status})`;
-    throw new Error(typeof msg === "string" ? msg : "Request failed");
+    const err: any = new Error(typeof msg === "string" ? msg : "Request failed");
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
 
-export type Campaign = {
-  id: number;
-  name: string;
-  subject?: string;
-  type?: string;
-  status?: string;
-  sentDate?: string;
-  createdAt?: string;
-  statistics?: { globalStats?: GlobalStats };
+export type Account = {
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  companyName?: string;
 };
 
 export type GlobalStats = {
@@ -48,6 +49,17 @@ export type GlobalStats = {
   complaints?: number;
 };
 
+export type Campaign = {
+  id: number;
+  name: string;
+  subject?: string;
+  type?: string;
+  status?: string;
+  sentDate?: string;
+  createdAt?: string;
+  statistics?: { globalStats?: GlobalStats };
+};
+
 export type Contact = {
   id: number;
   email: string;
@@ -60,20 +72,23 @@ export type Contact = {
 };
 
 export const brevo = {
-  getAccount: (key: string) => req("/account", key),
-  listCampaigns: (key: string) => req("/campaigns?limit=100", key),
-  getCampaign: (key: string, id: number | string) => req(`/campaigns/${id}`, key),
-  listContacts: (key: string, limit = 100, offset = 0) =>
-    req(`/contacts?limit=${limit}&offset=${offset}`, key),
-  getContact: (key: string, id: number | string) =>
-    req(`/contacts/${encodeURIComponent(String(id))}`, key),
-  getContactStats: (key: string, id: number | string) =>
-    req(`/contacts/${encodeURIComponent(String(id))}/stats`, key),
-  getAttributes: (key: string) => req("/attributes", key),
-  createContact: (key: string, body: any) =>
-    req("/contacts", key, { method: "POST", body: JSON.stringify(body) }),
-  updateContact: (key: string, id: number | string, body: any) =>
-    req(`/contacts/${encodeURIComponent(String(id))}`, key, {
+  // auth
+  me: (token: string) => req("/auth/me", token),
+  logout: (token: string) => req("/auth/logout", token, { method: "POST" }),
+  // data
+  listCampaigns: (token: string) => req("/brevo/campaigns?limit=100", token),
+  getCampaign: (token: string, id: number | string) => req(`/brevo/campaigns/${id}`, token),
+  listContacts: (token: string, limit = 100, offset = 0) =>
+    req(`/brevo/contacts?limit=${limit}&offset=${offset}`, token),
+  getContact: (token: string, id: number | string) =>
+    req(`/brevo/contacts/${encodeURIComponent(String(id))}`, token),
+  getContactStats: (token: string, id: number | string) =>
+    req(`/brevo/contacts/${encodeURIComponent(String(id))}/stats`, token),
+  getAttributes: (token: string) => req("/brevo/attributes", token),
+  createContact: (token: string, body: any) =>
+    req("/brevo/contacts", token, { method: "POST", body: JSON.stringify(body) }),
+  updateContact: (token: string, id: number | string, body: any) =>
+    req(`/brevo/contacts/${encodeURIComponent(String(id))}`, token, {
       method: "PUT",
       body: JSON.stringify(body),
     }),

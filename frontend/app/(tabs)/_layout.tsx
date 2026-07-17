@@ -1,11 +1,15 @@
 import React from "react";
 import { Platform, StyleSheet } from "react-native";
-import { Tabs } from "expo-router";
+import { Tabs, Redirect } from "expo-router";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/src/theme";
+import { useBrevo } from "@/src/context/BrevoContext";
 
 export default function TabsLayout() {
+  const { token, loading } = useBrevo();
+  if (!loading && !token) return <Redirect href="/login" />;
+
   return (
     <Tabs
       initialRouteName="campaigns"

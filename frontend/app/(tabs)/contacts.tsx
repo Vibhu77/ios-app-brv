@@ -27,7 +27,7 @@ function contactName(c: Contact) {
 export default function ContactsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { apiKey, isConnected } = useBrevo();
+  const { token, isConnected } = useBrevo();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -35,13 +35,13 @@ export default function ContactsScreen() {
   const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
-    if (!apiKey) {
+    if (!token) {
       setLoading(false);
       return;
     }
     setError(null);
     try {
-      const res = await brevo.listContacts(apiKey, 100, 0);
+      const res = await brevo.listContacts(token, 100, 0);
       setContacts(res?.contacts || []);
     } catch (e: any) {
       setError(e?.message || "Failed to load contacts");
@@ -49,7 +49,7 @@ export default function ContactsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [apiKey]);
+  }, [token]);
 
   useFocusEffect(
     useCallback(() => {

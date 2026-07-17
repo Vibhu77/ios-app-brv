@@ -20,7 +20,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function ContactForm() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { apiKey } = useBrevo();
+  const { token } = useBrevo();
   const toast = useToast();
   const params = useLocalSearchParams<{ id?: string }>();
   const isEdit = !!params.id;
@@ -42,7 +42,7 @@ export default function ContactForm() {
       setAttributes(normal);
 
       if (isEdit) {
-        const c = await brevo.getContact(apiKey, params.id!);
+        const c = await brevo.getContact(token, params.id!);
         setEmail(c.email || "");
         setValues(c.attributes || {});
       }
@@ -51,7 +51,7 @@ export default function ContactForm() {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, isEdit, params.id, toast]);
+  }, [token, isEdit, params.id, toast]);
 
   useEffect(() => {
     load();
@@ -90,10 +90,10 @@ export default function ContactForm() {
     setSaving(true);
     try {
       if (isEdit) {
-        await brevo.updateContact(apiKey, params.id!, { attributes: payloadAttrs });
+        await brevo.updateContact(token, params.id!, { attributes: payloadAttrs });
         toast.show("Contact updated", "success");
       } else {
-        await brevo.createContact(apiKey, {
+        await brevo.createContact(token, {
           email: email.trim(),
           attributes: payloadAttrs,
           updateEnabled: true,
