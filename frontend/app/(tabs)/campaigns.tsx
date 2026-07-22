@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { StyleSheet, Text, View, FlatList, Pressable, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font } from "@/src/theme";
@@ -12,12 +13,14 @@ import { nf, pctStr, pctVal, fmtDate } from "@/src/lib/format";
 
 export default function CampaignsScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
   const { token, isConnected, account } = useBrevo();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [headerH, setHeaderH] = useState(insets.top + 76);
 
   const load = useCallback(async () => {
     if (!token) {
@@ -48,7 +51,7 @@ export default function CampaignsScreen() {
     load();
   };
 
-  const headerTop = insets.top + 130;
+  const headerTop = headerH;
 
   // Aggregate KPIs across sent campaigns
   const sentCampaigns = campaigns.filter((c) => (c.statistics?.globalStats?.sent || 0) > 0);
@@ -121,6 +124,7 @@ export default function CampaignsScreen() {
         title="Campaigns"
         large
         subtitle={account?.companyName ? account.companyName : account?.email}
+        onHeight={setHeaderH}
       />
       {!isConnected ? (
         <View style={[styles.fill, { paddingTop: insets.top + 52 }]}>
@@ -166,7 +170,7 @@ export default function CampaignsScreen() {
           contentContainerStyle={{
             paddingTop: headerTop,
             paddingHorizontal: spacing.lg,
-            paddingBottom: insets.bottom + 90,
+            paddingBottom: tabBarHeight + spacing.lg,
           }}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}

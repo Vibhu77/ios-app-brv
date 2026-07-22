@@ -10,6 +10,7 @@ import {
   Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect, useRouter } from "expo-router";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +27,7 @@ function contactName(c: Contact) {
 
 export default function ContactsScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
   const { token, isConnected } = useBrevo();
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -181,7 +183,7 @@ export default function ContactsScreen() {
           }
           contentContainerStyle={{
             paddingTop: headerTop,
-            paddingBottom: insets.bottom + 100,
+            paddingBottom: tabBarHeight + spacing.lg,
           }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -204,7 +206,7 @@ export default function ContactsScreen() {
           onPress={() => router.push("/contact/form")}
           style={({ pressed }) => [
             styles.fab,
-            { bottom: insets.bottom + 76, opacity: pressed ? 0.9 : 1 },
+            { bottom: tabBarHeight + spacing.md, opacity: pressed ? 0.9 : 1 },
           ]}
         >
           <Ionicons name="add" size={28} color={colors.onBrandPrimary} />

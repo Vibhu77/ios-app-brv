@@ -3,11 +3,13 @@ import { Platform, StyleSheet } from "react-native";
 import { Tabs, Redirect } from "expo-router";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "@/src/theme";
 import { useBrevo } from "@/src/context/BrevoContext";
 
 export default function TabsLayout() {
   const { token, loading } = useBrevo();
+  const insets = useSafeAreaInsets();
   if (!loading && !token) return <Redirect href="/login" />;
 
   return (
@@ -19,6 +21,9 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.onSurfaceTertiary,
         tabBarStyle: {
           position: "absolute",
+          height: 56 + insets.bottom,
+          paddingTop: 8,
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
           backgroundColor: Platform.OS === "android" ? colors.surface : "transparent",
