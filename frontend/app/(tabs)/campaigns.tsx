@@ -1,11 +1,11 @@
 import React, { useCallback, useState } from "react";
-import { StyleSheet, Text, View, FlatList, Pressable, RefreshControl } from "react-native";
+import { StyleSheet, Text, View, Pressable, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font } from "@/src/theme";
-import { GlassHeader } from "@/src/components/Header";
+import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
 import { KpiCard, StateView, Skeleton, Card, StatusBadge } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
@@ -15,12 +15,16 @@ export default function CampaignsScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
-  const { token, isConnected, account } = useBrevo();
+  const { token, account } = useBrevo();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [headerH, setHeaderH] = useState(insets.top + 76);
+
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => {
+    scrollY.value = e.contentOffset.y;
+  });
 
   const load = useCallback(async () => {
     if (!token) {
@@ -46,40 +50,24 @@ export default function CampaignsScreen() {
     }, [load])
   );
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    load();
-  };
+  const subtitle = account?.companyName ? account.companyName : account?.email;
 
-  const headerTop = headerH;
-
-  // Aggregate KPIs across sent campaigns
   const sentCampaigns = campaigns.filter((c) => (c.statistics?.globalStats?.sent || 0) > 0);
   const totalSent = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.sent || 0), 0);
-  const totalDelivered = sentCampaigns.reduce(
-    (a, c) => a + (c.statistics?.globalStats?.delivered || 0),
-    0
-  );
+  const totalDelivered = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.delivered || 0), 0);
   const totalViews = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.uniqueViews || 0), 0);
   const totalClicks = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.uniqueClicks || 0), 0);
 
-  const renderHeader = () => (
-    <View style={styles.kpiGrid} testID="campaigns-kpi-grid">
+  const listHeader = (
+    <View>
+      <LargeTitle title="Campaigns" subtitle={subtitle} />
       <View style={styles.kpiRow}>
         <KpiCard label="Total Sent" value={nf(totalSent)} testID="kpi-total-sent" />
         <KpiCard label="Campaigns" value={nf(campaigns.length)} testID="kpi-campaigns" />
       </View>
-      <View style={styles.kpiRow}>
-        <KpiCard
-          label="Avg Open Rate"
-          value={pctStr(totalViews, totalDelivered)}
-          testID="kpi-open-rate"
-        />
-        <KpiCard
-          label="Avg Click Rate"
-          value={pctStr(totalClicks, totalDelivered)}
-          testID="kpi-click-rate"
-        />
+      <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
+        <KpiCard label="Avg Open Rate" value={pctStr(totalViews, totalDelivered)} testID="kpi-open-rate" />
+        <KpiCard label="Avg Click Rate" value={pctStr(totalClicks, totalDelivered)} testID="kpi-click-rate" />
       </View>
       <Text style={styles.sectionTitle}>Recent campaigns</Text>
     </View>
@@ -87,8 +75,6 @@ export default function CampaignsScreen() {
 
   const renderItem = ({ item }: { item: Campaign }) => {
     const g = item.statistics?.globalStats || {};
-    const openRate = pctVal(g.uniqueViews, g.delivered);
-    const clickRate = pctVal(g.uniqueClicks, g.delivered);
     return (
       <Pressable
         testID={`campaign-card-${item.id}`}
@@ -107,9 +93,9 @@ export default function CampaignsScreen() {
           </Text>
           <Text style={styles.campaignDate}>{fmtDate(item.sentDate || item.createdAt)}</Text>
           <View style={styles.miniStats}>
-            <MiniStat label="Opens" value={pctStr(g.uniqueViews, g.delivered)} pct={openRate} />
+            <MiniStat label="Opens" value={pctStr(g.uniqueViews, g.delivered)} />
             <View style={styles.miniDivider} />
-            <MiniStat label="Clicks" value={pctStr(g.uniqueClicks, g.delivered)} pct={clickRate} />
+            <MiniStat label="Clicks" value={pctStr(g.uniqueClicks, g.delivered)} />
             <View style={styles.miniDivider} />
             <MiniStat label="Delivered" value={nf(g.delivered)} />
           </View>
@@ -120,27 +106,24 @@ export default function CampaignsScreen() {
 
   return (
     <View style={styles.container}>
-      <GlassHeader
-        title="Campaigns"
-        large
-        subtitle={account?.companyName ? account.companyName : account?.email}
-        onHeight={setHeaderH}
-      />
-      {!isConnected ? (
-        <View style={[styles.fill, { paddingTop: insets.top + 52 }]}>
-          <StateView
-            icon="key-outline"
-            title="Connect your Brevo account"
-            message="Add your Brevo API key in Settings to see campaign reports."
-            actionLabel="Go to Settings"
-            onAction={() => router.push("/settings")}
-            testID="campaigns-not-connected"
-          />
+      {loading ? (
+        <View style={{ flex: 1, paddingTop: insets.top, paddingHorizontal: spacing.lg }}>
+          <LargeTitle title="Campaigns" subtitle={subtitle} />
+          <View style={styles.kpiRow}>
+            <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
+            <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
+          </View>
+          <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
+            <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
+            <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
+          </View>
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} style={{ height: 120, borderRadius: radius.md, marginTop: spacing.md }} />
+          ))}
         </View>
-      ) : loading ? (
-        <CampaignsSkeleton top={headerTop} />
       ) : error ? (
-        <View style={[styles.fill, { paddingTop: insets.top + 52 }]}>
+        <View style={{ flex: 1, paddingTop: insets.top, paddingHorizontal: spacing.lg }}>
+          <LargeTitle title="Campaigns" subtitle={subtitle} />
           <StateView
             icon="cloud-offline-outline"
             title="Couldn't load campaigns"
@@ -151,14 +134,16 @@ export default function CampaignsScreen() {
           />
         </View>
       ) : (
-        <FlatList
+        <Animated.FlatList
           testID="campaigns-list"
           data={campaigns}
-          keyExtractor={(c) => String(c.id)}
+          keyExtractor={(c: Campaign) => String(c.id)}
           renderItem={renderItem}
-          ListHeaderComponent={renderHeader}
+          ListHeaderComponent={listHeader}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           ListEmptyComponent={
-            <View style={{ paddingTop: spacing.xxl }}>
+            <View style={{ paddingTop: spacing.xl }}>
               <StateView
                 icon="mail-outline"
                 title="No campaigns yet"
@@ -168,19 +153,29 @@ export default function CampaignsScreen() {
             </View>
           }
           contentContainerStyle={{
-            paddingTop: headerTop,
+            paddingTop: insets.top,
             paddingHorizontal: spacing.lg,
             paddingBottom: tabBarHeight + spacing.lg,
           }}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          refreshControl={
+            <RefreshControl
+              progressViewOffset={insets.top}
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                load();
+              }}
+            />
+          }
         />
       )}
+      <StickyHeader scrollY={scrollY} title="Campaigns" />
     </View>
   );
 }
 
-function MiniStat({ label, value, pct }: { label: string; value: string; pct?: number }) {
+function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.miniStat}>
       <Text style={styles.miniValue}>{value}</Text>
@@ -189,34 +184,14 @@ function MiniStat({ label, value, pct }: { label: string; value: string; pct?: n
   );
 }
 
-function CampaignsSkeleton({ top }: { top: number }) {
-  return (
-    <View style={{ paddingTop: top, paddingHorizontal: spacing.lg }}>
-      <View style={styles.kpiRow}>
-        <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
-        <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
-      </View>
-      <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
-        <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
-        <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
-      </View>
-      {[1, 2, 3].map((i) => (
-        <Skeleton key={i} style={{ height: 120, borderRadius: radius.md, marginTop: spacing.md }} />
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  fill: { flex: 1 },
-  kpiGrid: { marginBottom: spacing.sm },
-  kpiRow: { flexDirection: "row", gap: spacing.md, marginBottom: spacing.md },
+  kpiRow: { flexDirection: "row", gap: spacing.md },
   sectionTitle: {
     fontSize: font.lg,
     fontWeight: "700",
     color: colors.onSurface,
-    marginTop: spacing.sm,
+    marginTop: spacing.lg,
     marginBottom: spacing.sm,
   },
   campaignCard: { marginBottom: spacing.md },
@@ -236,6 +211,4 @@ const styles = StyleSheet.create({
   miniValue: { fontSize: font.lg, fontWeight: "800", color: colors.onSurface },
   miniLabel: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 2 },
   miniDivider: { width: StyleSheet.hairlineWidth, height: 28, backgroundColor: colors.border },
-  badge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.sm },
-  badgeText: { fontSize: font.sm, fontWeight: "700" },
 });

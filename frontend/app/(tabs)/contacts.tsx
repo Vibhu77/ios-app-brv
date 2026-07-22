@@ -1,20 +1,12 @@
 import React, { useCallback, useMemo, useState } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  TextInput,
-  Platform,
-} from "react-native";
+import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
 import { useFocusEffect, useRouter } from "expo-router";
-import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, shadow } from "@/src/theme";
+import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
 import { Avatar, StateView, Skeleton } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Contact } from "@/src/lib/brevo";
@@ -35,6 +27,11 @@ export default function ContactsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => {
+    scrollY.value = e.contentOffset.y;
+  });
 
   const load = useCallback(async () => {
     if (!token) {
@@ -68,7 +65,37 @@ export default function ContactsScreen() {
     );
   }, [contacts, query]);
 
-  const headerTop = insets.top + 108;
+  const searchBox = (
+    <View style={styles.searchBox}>
+      <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
+      <TextInput
+        testID="contacts-search-input"
+        style={styles.searchInput}
+        placeholder="Search email or name"
+        placeholderTextColor={colors.onSurfaceTertiary}
+        value={query}
+        onChangeText={setQuery}
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="search"
+      />
+      {query.length > 0 ? (
+        <Pressable onPress={() => setQuery("")} hitSlop={10} testID="contacts-search-clear">
+          <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
+  const listHeader = (
+    <View style={styles.headerBlock}>
+      <LargeTitle
+        title="Contacts"
+        right={<Text style={styles.count}>{contacts.length}</Text>}
+      />
+      {searchBox}
+    </View>
+  );
 
   const renderItem = ({ item }: { item: Contact }) => {
     const name = contactName(item);
@@ -96,51 +123,10 @@ export default function ContactsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Sticky glass header with search */}
-      <BlurView
-        intensity={Platform.OS === "ios" ? 60 : 90}
-        tint="light"
-        style={[styles.header, { paddingTop: insets.top }]}
-      >
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>Contacts</Text>
-          <Text style={styles.count}>{contacts.length}</Text>
-        </View>
-        <View style={styles.searchBox}>
-          <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
-          <TextInput
-            testID="contacts-search-input"
-            style={styles.searchInput}
-            placeholder="Search email or name"
-            placeholderTextColor={colors.onSurfaceTertiary}
-            value={query}
-            onChangeText={setQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-          />
-          {query.length > 0 ? (
-            <Pressable onPress={() => setQuery("")} hitSlop={10} testID="contacts-search-clear">
-              <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          ) : null}
-        </View>
-        <View style={styles.hairline} />
-      </BlurView>
-
-      {!isConnected ? (
-        <View style={[styles.fill, { paddingTop: insets.top + 52 }]}>
-          <StateView
-            icon="key-outline"
-            title="Connect your Brevo account"
-            message="Add your Brevo API key in Settings to browse contacts."
-            actionLabel="Go to Settings"
-            onAction={() => router.push("/settings")}
-            testID="contacts-not-connected"
-          />
-        </View>
-      ) : loading ? (
-        <View style={{ paddingTop: headerTop, paddingHorizontal: spacing.lg }}>
+      {loading ? (
+        <View style={{ flex: 1, paddingTop: insets.top, paddingHorizontal: spacing.lg }}>
+          <LargeTitle title="Contacts" />
+          {searchBox}
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <View key={i} style={styles.skRow}>
               <Skeleton style={{ width: 44, height: 44, borderRadius: 22 }} />
@@ -152,7 +138,8 @@ export default function ContactsScreen() {
           ))}
         </View>
       ) : error ? (
-        <View style={[styles.fill, { paddingTop: insets.top + 52 }]}>
+        <View style={{ flex: 1, paddingTop: insets.top, paddingHorizontal: spacing.lg }}>
+          <LargeTitle title="Contacts" />
           <StateView
             icon="cloud-offline-outline"
             title="Couldn't load contacts"
@@ -163,14 +150,17 @@ export default function ContactsScreen() {
           />
         </View>
       ) : (
-        <FlatList
+        <Animated.FlatList
           testID="contacts-list"
           data={filtered}
-          keyExtractor={(c) => String(c.id)}
+          keyExtractor={(c: Contact) => String(c.id)}
           renderItem={renderItem}
+          ListHeaderComponent={listHeader}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           ListEmptyComponent={
-            <View style={{ paddingTop: spacing.xxl }}>
+            <View style={{ paddingTop: spacing.xl, paddingHorizontal: spacing.lg }}>
               <StateView
                 icon="people-outline"
                 title={query ? "No matches" : "No contacts yet"}
@@ -182,13 +172,15 @@ export default function ContactsScreen() {
             </View>
           }
           contentContainerStyle={{
-            paddingTop: headerTop,
+            paddingTop: insets.top,
             paddingBottom: tabBarHeight + spacing.lg,
           }}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
+              progressViewOffset={insets.top}
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
@@ -199,7 +191,8 @@ export default function ContactsScreen() {
         />
       )}
 
-      {/* FAB */}
+      <StickyHeader scrollY={scrollY} title="Contacts" />
+
       {isConnected ? (
         <Pressable
           testID="add-contact-fab"
@@ -218,19 +211,8 @@ export default function ContactsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  fill: { flex: 1 },
-  header: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    backgroundColor: "rgba(255,255,255,0.72)",
-    paddingHorizontal: spacing.lg,
-  },
-  headerRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-  title: { fontSize: font.display, fontWeight: "800", color: colors.onSurface, letterSpacing: -0.5 },
-  count: { fontSize: font.base, fontWeight: "700", color: colors.onSurfaceTertiary, paddingBottom: 4 },
+  headerBlock: { paddingHorizontal: spacing.lg },
+  count: { fontSize: font.base, fontWeight: "700", color: colors.onSurfaceTertiary, paddingBottom: 6 },
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -239,11 +221,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     height: 40,
-    marginTop: spacing.md,
     marginBottom: spacing.md,
   },
   searchInput: { flex: 1, fontSize: font.base, color: colors.onSurface, paddingVertical: 0 },
-  hairline: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginHorizontal: -spacing.lg },
   row: {
     flexDirection: "row",
     alignItems: "center",
