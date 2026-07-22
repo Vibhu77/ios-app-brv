@@ -174,9 +174,9 @@ function ActivityCard({ label, value }: { label: string; value: string }) {
 
 function Tag({ label, tone }: { label: string; tone: "success" | "error" | "warning" }) {
   const map = {
-    success: { bg: "#E6F0EC", fg: colors.success },
-    error: { bg: "#F5E4E2", fg: colors.error },
-    warning: { bg: "#FBF0E1", fg: colors.warning },
+    success: { bg: colors.successBg, fg: colors.successText },
+    error: { bg: colors.errorBg, fg: colors.errorText },
+    warning: { bg: colors.warningBg, fg: colors.warningText },
   }[tone];
   return (
     <View style={[styles.tag, { backgroundColor: map.bg }]}>

@@ -14,12 +14,13 @@ import { titleCase } from "@/src/lib/format";
 // ---------- Status badge ----------
 export function StatusBadge({ status }: { status?: string }) {
   const map: Record<string, { bg: string; fg: string }> = {
-    sent: { bg: "#E6F0EC", fg: colors.success },
-    queued: { bg: "#FBF0E1", fg: colors.warning },
-    inProcess: { bg: "#FBF0E1", fg: colors.warning },
-    draft: { bg: colors.surfaceTertiary, fg: colors.onSurfaceSecondary },
-    suspended: { bg: "#F5E4E2", fg: colors.error },
-    archive: { bg: colors.surfaceTertiary, fg: colors.onSurfaceSecondary },
+    sent: { bg: colors.successBg, fg: colors.successText },
+    queued: { bg: colors.infoBg, fg: colors.infoText },
+    scheduled: { bg: colors.infoBg, fg: colors.infoText },
+    inProcess: { bg: colors.infoBg, fg: colors.infoText },
+    draft: { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary },
+    archive: { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary },
+    suspended: { bg: colors.errorBg, fg: colors.errorText },
   };
   const s = map[status || "draft"] || map.draft;
   return (

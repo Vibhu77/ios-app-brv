@@ -1,29 +1,63 @@
-// Design tokens sourced from /app/design_guidelines.json — "iOS-Native Clean (Light)".
+// Brevo "Naos" design system tokens. React Native accepts hsl()/hsla() strings.
+// This is a token swap + semantic mapping over the existing layout/components.
 export const colors = {
+  // Surfaces & text
   surface: "#FFFFFF",
-  onSurface: "#111111",
-  surfaceSecondary: "#F4F5F7",
-  onSurfaceSecondary: "#4A4A4C",
-  surfaceTertiary: "#EAEBEF",
-  onSurfaceTertiary: "#69696C",
-  surfaceInverse: "#1A1A1A",
+  background: "hsl(0, 0%, 98%)",
+  onSurface: "hsl(0, 0%, 11%)",
+  onSurfaceSecondary: "hsl(0, 0%, 41%)",
+  surfaceSecondary: "hsl(0, 0%, 96%)",
+  onSurfaceSecondaryText: "hsl(0, 0%, 41%)",
+  surfaceTertiary: "hsl(0, 0%, 93%)",
+  onSurfaceTertiary: "hsl(0, 0%, 55%)",
+  surfaceInverse: "hsl(0, 0%, 11%)",
   onSurfaceInverse: "#FFFFFF",
-  brand: "#111111",
-  brandPrimary: "#111111",
+
+  // Brand / primary (charcoal — Brevo's primary)
+  brand: "hsl(0, 0%, 11%)",
+  brandPrimary: "hsl(0, 0%, 11%)",
+  brandPrimaryPressed: "hsl(0, 0%, 28%)",
   onBrandPrimary: "#FFFFFF",
-  brandSecondary: "#4A4A4C",
-  brandTertiary: "#EAEBEF",
-  onBrandTertiary: "#111111",
-  success: "#285C4D",
+  brandSecondary: "hsl(0, 0%, 41%)",
+  brandTertiary: "hsl(0, 0%, 96%)",
+  onBrandTertiary: "hsl(0, 0%, 11%)",
+
+  // Accent / information (iris purple) — links, highlights, selected states
+  accent: "hsl(245, 67%, 61%)",
+  onAccent: "#FFFFFF",
+
+  // Semantic
+  success: "hsl(162, 87%, 32%)",
   onSuccess: "#FFFFFF",
-  warning: "#8A5A19",
-  onWarning: "#FFFFFF",
-  error: "#8B2C24",
+  error: "hsl(353, 100%, 61%)",
   onError: "#FFFFFF",
-  border: "#E1E2E5",
-  borderStrong: "#C0C2C8",
-  divider: "#F0F1F3",
+  warning: "hsl(15, 100%, 62%)",
+  onWarning: "#FFFFFF",
+
+  // Soft backgrounds + on-text (badges, KPI accents, toasts, banners)
+  successBg: "hsl(164, 52%, 96%)",
+  successText: "hsl(158, 100%, 21%)",
+  errorBg: "hsl(354, 100%, 96%)",
+  errorText: "hsl(349, 78%, 46%)",
+  infoBg: "hsl(244, 70%, 96%)",
+  infoText: "hsl(245, 43%, 43%)",
+  warningBg: "hsl(16, 100%, 97%)",
+  warningText: "hsl(14, 61%, 46%)",
+
+  // Lines
+  border: "hsl(0, 0%, 89%)",
+  borderStrong: "hsl(0, 0%, 80%)",
+  divider: "hsl(0, 0%, 93%)",
 };
+
+// Chart palette (use in order when trend charts are added)
+export const chartColors = [
+  "hsl(245, 67%, 61%)",
+  "hsl(180, 77%, 35%)",
+  "hsl(338, 81%, 59%)",
+  "hsl(209, 75%, 63%)",
+  "hsl(47, 98%, 44%)",
+];
 
 export const spacing = {
   xs: 4,
@@ -36,9 +70,10 @@ export const spacing = {
 };
 
 export const radius = {
-  sm: 6,
-  md: 12,
-  lg: 20,
+  sm: 4,
+  md: 8,
+  lg: 16,
+  xl: 32,
   pill: 999,
 };
 
