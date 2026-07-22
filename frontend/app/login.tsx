@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Redirect } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, radius, font } from "@/src/theme";
+import { colors, spacing, font } from "@/src/theme";
 import { PrimaryButton } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
@@ -20,9 +21,13 @@ const FEATURES = [
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { login } = useBrevo();
+  const { login, isConnected } = useBrevo();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+
+  // Once a session exists (inline success OR captured via the deep-link
+  // listener after openAuthSessionAsync dismisses in Expo Go), leave login.
+  if (isConnected) return <Redirect href="/campaigns" />;
 
   const onLogin = async () => {
     setBusy(true);
@@ -68,7 +73,7 @@ export default function LoginScreen() {
           testID="login-brevo-button"
         />
         <Text style={styles.legal}>
-          You'll be redirected to Brevo to sign in securely. We never see your password.
+          Sign in securely with Brevo — we never see your password.
         </Text>
       </View>
     </View>

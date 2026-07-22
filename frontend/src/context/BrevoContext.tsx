@@ -61,6 +61,34 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
     [hydrate]
   );
 
+  // Catch-all deep-link handler. In Expo Go the browser bounces back to the
+  // dynamic `exp://.../oauth-complete?token=...` link; openAuthSessionAsync may
+  // resolve as `dismiss` (not `success`) so the token isn't returned inline.
+  // This listener captures the token from the incoming URL regardless.
+  const handleIncomingUrl = useCallback(
+    async (url: string | null) => {
+      if (!url) return;
+      let parsed;
+      try {
+        parsed = Linking.parse(url);
+      } catch {
+        return;
+      }
+      if (!(parsed.path || "").includes("oauth-complete")) return;
+      const t = parsed.queryParams?.token as string | undefined;
+      if (t) await setSession(String(t));
+    },
+    [setSession]
+  );
+
+  useEffect(() => {
+    const sub = Linking.addEventListener("url", ({ url }) => {
+      handleIncomingUrl(url);
+    });
+    Linking.getInitialURL().then(handleIncomingUrl);
+    return () => sub.remove();
+  }, [handleIncomingUrl]);
+
   const login = useCallback(async () => {
     const redirect = Linking.createURL("oauth-complete");
     try {
@@ -76,6 +104,9 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
         }
         return { ok: false, error: "No session returned" };
       }
+      // On some platforms (notably Expo Go) the session completes via the
+      // deep-link listener above rather than the returned result — treat
+      // dismiss/cancel as a silent no-op so we don't flash an error.
       if (result.type === "cancel" || result.type === "dismiss") {
         return { ok: false, error: "Sign in cancelled" };
       }
