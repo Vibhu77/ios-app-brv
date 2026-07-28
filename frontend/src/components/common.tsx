@@ -8,8 +8,32 @@ import {
   ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, radius, font, shadow } from "@/src/theme";
+import { colors, spacing, radius, font, shadow, fonts } from "@/src/theme";
 import { titleCase } from "@/src/lib/format";
+
+// ---------- Signature mint-green icon chip ----------
+export function IconChip({
+  icon,
+  size = 36,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  size?: number;
+}) {
+  return (
+    <View style={[chipStyles.chip, { width: size, height: size }]}>
+      <Ionicons name={icon} size={size * 0.5} color={colors.onMint} />
+    </View>
+  );
+}
+
+const chipStyles = StyleSheet.create({
+  chip: {
+    borderRadius: 10,
+    backgroundColor: colors.mint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
 
 // ---------- Status badge ----------
 export function StatusBadge({ status }: { status?: string }) {
@@ -64,15 +88,22 @@ export function KpiCard({
   label,
   value,
   sub,
+  icon,
   testID,
 }: {
   label: string;
   value: string;
   sub?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
   testID?: string;
 }) {
   return (
     <View style={styles.kpi} testID={testID}>
+      {icon ? (
+        <View style={styles.kpiChip}>
+          <IconChip icon={icon} size={32} />
+        </View>
+      ) : null}
       <Text style={styles.kpiValue}>{value}</Text>
       <Text style={styles.kpiLabel}>{label}</Text>
       {sub ? <Text style={styles.kpiSub}>{sub}</Text> : null}

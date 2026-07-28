@@ -308,7 +308,7 @@ async def auth_logout(authorization: Optional[str] = Header(None)):
 async def list_campaigns(sess: dict = Depends(get_session)):
     return await brevo_paginated(
         "/emailCampaigns", sess["access_token"], "campaigns",
-        extra_params={"statistics": "globalStats", "sort": "desc"},
+        extra_params={"statistics": "globalStats", "sort": "desc", "excludeHtmlContent": "true"},
     )
 
 

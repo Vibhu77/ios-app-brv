@@ -1,7 +1,8 @@
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
-import { LogBox, StyleSheet } from "react-native";
+import { LogBox, StyleSheet, Text, TextInput } from "react-native";
+import { useFonts } from "expo-font";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -22,15 +23,30 @@ LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const [loaded, error] = useIconFonts();
+  const [iconsLoaded, iconsError] = useIconFonts();
+  const [interLoaded, interError] = useFonts({
+    Inter_400Regular: require("../assets/fonts/Inter_400Regular.ttf"),
+    Inter_500Medium: require("../assets/fonts/Inter_500Medium.ttf"),
+    Inter_600SemiBold: require("../assets/fonts/Inter_600SemiBold.ttf"),
+    Inter_700Bold: require("../assets/fonts/Inter_700Bold.ttf"),
+  });
+
+  const loaded = iconsLoaded && interLoaded;
+  const error = iconsError || interError;
 
   useEffect(() => {
     if (loaded || error) {
+      // Make Inter the app-wide default font for all Text / TextInput.
+      const withInter = { style: { fontFamily: "Inter_400Regular" } };
+      // @ts-expect-error defaultProps is still supported for RN Text/TextInput
+      Text.defaultProps = { ...(Text.defaultProps || {}), ...withInter };
+      // @ts-expect-error defaultProps is still supported for RN Text/TextInput
+      TextInput.defaultProps = { ...(TextInput.defaultProps || {}), ...withInter };
       SplashScreen.hideAsync();
     }
   }, [loaded, error]);
 
-  // If the CDN is unreachable we fall through on error rather than wedging
+  // If a font CDN is unreachable we fall through on error rather than wedging
   // the app — icons will tofu, but the app still boots.
   if (!loaded && !error) return null;
 

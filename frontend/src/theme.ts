@@ -47,7 +47,23 @@ export const colors = {
   // Lines
   border: "hsl(0, 0%, 89%)",
   borderStrong: "hsl(0, 0%, 80%)",
-  divider: "hsl(0, 0%, 93%)",
+  divider: "hsl(0, 0%, 89%)",
+
+  // Signature Naos mint-green icon chip
+  mint: "hsl(103, 96%, 89%)",
+  onMint: "hsl(0, 0%, 11%)",
+  mintEyebrow: "hsl(103, 64%, 83%)",
+  // Login hero gradient (deep forest -> green)
+  heroGradientFrom: "hsl(156, 100%, 13%)",
+  heroGradientTo: "hsl(162, 86%, 32%)",
+};
+
+// Inter font families (loaded in the root layout).
+export const fonts = {
+  regular: "Inter_400Regular",
+  medium: "Inter_500Medium",
+  semibold: "Inter_600SemiBold",
+  bold: "Inter_700Bold",
 };
 
 // Chart palette (use in order when trend charts are added)
