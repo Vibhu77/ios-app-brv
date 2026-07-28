@@ -81,11 +81,10 @@ export const brevo = {
   // auth
   me: (token: string) => req("/auth/me", token),
   logout: (token: string) => req("/auth/logout", token, { method: "POST" }),
-  // data
-  listCampaigns: (token: string) => req("/brevo/campaigns?limit=100", token),
+  // data (backend paginates internally at 50/page to dodge Brevo's limit=100 bug)
+  listCampaigns: (token: string) => req("/brevo/campaigns", token),
   getCampaign: (token: string, id: number | string) => req(`/brevo/campaigns/${id}`, token),
-  listContacts: (token: string, limit = 100, offset = 0) =>
-    req(`/brevo/contacts?limit=${limit}&offset=${offset}`, token),
+  listContacts: (token: string) => req("/brevo/contacts", token),
   getContact: (token: string, id: number | string) =>
     req(`/brevo/contacts/${encodeURIComponent(String(id))}`, token),
   getContactStats: (token: string, id: number | string) =>

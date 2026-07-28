@@ -40,7 +40,7 @@ export default function ContactsScreen() {
     }
     setError(null);
     try {
-      const res = await brevo.listContacts(token, 100, 0);
+      const res = await brevo.listContacts(token);
       setContacts(res?.contacts || []);
     } catch (e: any) {
       setError(e?.message || "Failed to load contacts");

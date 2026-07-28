@@ -81,6 +81,58 @@ async def brevo(method: str, path: str, access_token: str, params: dict | None =
     return resp.json()
 
 
+# Brevo returns HTTP 500 for limit>=~100 on some endpoints (e.g. /emailCampaigns),
+# so we page at 50 and concatenate. Resilient: skip an individual page that 5xxs
+# and keep the rest instead of blanking the screen. Client errors (4xx like auth)
+# are propagated so real failures still surface.
+async def brevo_paginated(
+    path: str,
+    access_token: str,
+    list_key: str,
+    page_size: int = 50,
+    max_pages: int = 60,
+    extra_params: dict | None = None,
+):
+    items: list = []
+    offset = 0
+    total: int | None = None
+    pages = 0
+    consecutive_failures = 0
+    while pages < max_pages:
+        params = {"limit": page_size, "offset": offset}
+        if extra_params:
+            params.update(extra_params)
+        try:
+            data = await brevo("GET", path, access_token, params=params)
+            consecutive_failures = 0
+        except HTTPException as e:
+            if e.status_code < 500:
+                raise
+            logger.warning("Paginated fetch skipping %s offset=%s: %s", path, offset, getattr(e, "detail", e))
+            consecutive_failures += 1
+            if consecutive_failures >= 2:
+                break
+            offset += page_size
+            pages += 1
+            continue
+
+        if total is None:
+            total = data.get("count")
+        page_items = data.get(list_key) or []
+        items.extend(page_items)
+        offset += page_size
+        pages += 1
+
+        if len(page_items) < page_size:
+            break
+        if total is not None and offset >= total:
+            break
+
+    return {"count": total if total is not None else len(items), list_key: items}
+
+
+
+
 # ---------------- Session / token management ----------------
 def _bearer(authorization: Optional[str]) -> Optional[str]:
     if not authorization or not authorization.lower().startswith("bearer "):
@@ -253,10 +305,11 @@ async def auth_logout(authorization: Optional[str] = Header(None)):
 
 # ---------------- Brevo data endpoints (session-protected) ----------------
 @api_router.get("/brevo/campaigns")
-async def list_campaigns(sess: dict = Depends(get_session), limit: int = 100, offset: int = 0):
-    return await brevo("GET", "/emailCampaigns", sess["access_token"], params={
-        "limit": limit, "offset": offset, "statistics": "globalStats", "sort": "desc",
-    })
+async def list_campaigns(sess: dict = Depends(get_session)):
+    return await brevo_paginated(
+        "/emailCampaigns", sess["access_token"], "campaigns",
+        extra_params={"statistics": "globalStats", "sort": "desc"},
+    )
 
 
 @api_router.get("/brevo/campaigns/{campaign_id}")
@@ -265,8 +318,11 @@ async def get_campaign(campaign_id: int, sess: dict = Depends(get_session)):
 
 
 @api_router.get("/brevo/contacts")
-async def list_contacts(sess: dict = Depends(get_session), limit: int = 100, offset: int = 0):
-    return await brevo("GET", "/contacts", sess["access_token"], params={"limit": limit, "offset": offset, "sort": "desc"})
+async def list_contacts(sess: dict = Depends(get_session)):
+    return await brevo_paginated(
+        "/contacts", sess["access_token"], "contacts",
+        extra_params={"sort": "desc"},
+    )
 
 
 @api_router.get("/brevo/attributes")
@@ -310,3 +366,4 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
