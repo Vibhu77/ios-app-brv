@@ -4,14 +4,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Redirect } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, font } from "@/src/theme";
-import { PrimaryButton } from "@/src/components/common";
+import { colors, spacing, font, fonts } from "@/src/theme";
+import { PrimaryButton, IconChip } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 
-const HERO =
-  "https://images.unsplash.com/photo-1497215842964-222b430dc094?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwxfHxtaW5pbWFsJTIwb2ZmaWNlJTIwd29ya3NwYWNlJTIwY2xlYW58ZW58MHx8fHwxNzgxOTE4MjYwfDA&ixlib=rb-4.1.0&q=85";
+const BREVO_LOGO = require("@/assets/brevo-logo-white.png");
 
 const FEATURES = [
   { icon: "bar-chart-outline", text: "Track every campaign's performance" },
@@ -41,32 +39,33 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container} testID="login-screen">
-      <View style={styles.hero}>
-        <Image source={{ uri: HERO }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} />
-        <LinearGradient colors={["rgba(26,26,26,0.15)", "rgba(26,26,26,0.95)"]} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={[colors.heroGradientFrom, colors.heroGradientTo]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
         <View style={[styles.heroContent, { paddingTop: insets.top + spacing.xl }]}>
-          <View style={styles.logo}>
-            <Ionicons name="mail-open" size={22} color={colors.onSurface} />
+          <Image source={BREVO_LOGO} style={styles.logo} contentFit="contain" />
+          <View style={styles.heroCopy}>
+            <Text style={styles.kicker}>CRM & ANALYTICS</Text>
+            <Text style={styles.title}>Your campaigns and{"\n"}contacts, on the go.</Text>
           </View>
-          <Text style={styles.kicker}>BREVO CRM & ANALYTICS</Text>
-          <Text style={styles.title}>Your campaigns and{"\n"}contacts, on the go.</Text>
         </View>
-      </View>
+      </LinearGradient>
 
       <View style={[styles.body, { paddingBottom: insets.bottom + spacing.xl }]}>
         <View style={styles.features}>
           {FEATURES.map((f) => (
             <View key={f.text} style={styles.feature}>
-              <View style={styles.featureIcon}>
-                <Ionicons name={f.icon as any} size={18} color={colors.onSurface} />
-              </View>
+              <IconChip icon={f.icon as any} size={40} />
               <Text style={styles.featureText}>{f.text}</Text>
             </View>
           ))}
         </View>
 
         <PrimaryButton
-          title="Continue with Brevo"
+          title="Sign in with Brevo"
           icon="log-in-outline"
           onPress={onLogin}
           loading={busy}
@@ -82,30 +81,38 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  hero: { flex: 1, backgroundColor: colors.surfaceInverse, justifyContent: "flex-end" },
-  heroContent: { padding: spacing.xl },
-  logo: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: "#FFF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.lg,
+  hero: { flex: 1, justifyContent: "flex-end" },
+  heroContent: { padding: spacing.xl, justifyContent: "space-between", flex: 1 },
+  logo: { width: 108, height: 32 },
+  heroCopy: { marginTop: "auto" },
+  kicker: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: font.sm,
+    fontFamily: fonts.bold,
+    letterSpacing: 1.5,
   },
-  kicker: { color: "rgba(255,255,255,0.8)", fontSize: font.sm, fontWeight: "700", letterSpacing: 1 },
-  title: { color: "#FFF", fontSize: 30, fontWeight: "800", marginTop: spacing.sm, lineHeight: 36, letterSpacing: -0.5 },
+  title: {
+    color: "#FFF",
+    fontSize: 30,
+    fontFamily: fonts.bold,
+    marginTop: spacing.sm,
+    lineHeight: 36,
+    letterSpacing: -0.5,
+  },
   body: { padding: spacing.xl, gap: spacing.lg },
-  features: { gap: spacing.md, marginBottom: spacing.sm },
+  features: { gap: spacing.lg, marginBottom: spacing.sm },
   feature: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  featureIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.surfaceSecondary,
-    alignItems: "center",
-    justifyContent: "center",
+  featureText: {
+    fontSize: font.base,
+    color: colors.onSurfaceSecondary,
+    fontFamily: fonts.semibold,
+    flex: 1,
   },
-  featureText: { fontSize: font.base, color: colors.onSurfaceSecondary, fontWeight: "600", flex: 1 },
-  legal: { fontSize: font.sm, color: colors.onSurfaceTertiary, textAlign: "center", lineHeight: 18 },
+  legal: {
+    fontSize: font.sm,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+    lineHeight: 18,
+    fontFamily: fonts.regular,
+  },
 });
