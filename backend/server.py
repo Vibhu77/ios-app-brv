@@ -15,6 +15,9 @@ import httpx
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("brevo_proxy")
+
 # --- Brevo OAuth config ---
 BREVO_API_BASE = "https://api.brevo.com/v3"
 BREVO_AUTHORIZE_URL = "https://oauth.brevo.com/realms/partner/oauth/authorize"
@@ -48,12 +51,30 @@ async def brevo(method: str, path: str, access_token: str, params: dict | None =
         raise HTTPException(status_code=502, detail={"message": f"Could not reach Brevo: {e}"})
 
     if resp.status_code >= 400:
+        raw_text = resp.text or ""
         try:
             body = resp.json()
         except Exception:
-            body = {"message": resp.text or "Brevo request failed"}
-        message = body.get("message") if isinstance(body, dict) else str(body)
-        raise HTTPException(status_code=resp.status_code, detail={"message": message or "Brevo request failed"})
+            body = None
+        if isinstance(body, dict):
+            message = body.get("message") or body.get("error") or raw_text or "Brevo request failed"
+            brevo_code = body.get("code")
+        else:
+            message = raw_text or "Brevo request failed"
+            brevo_code = None
+        logger.warning(
+            "Brevo API error: %s %s%s -> HTTP %s | code=%s | body=%s",
+            method, BREVO_API_BASE, path, resp.status_code, brevo_code, raw_text[:2000],
+        )
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail={
+                "message": message,
+                "upstream_status": resp.status_code,
+                "brevo_code": brevo_code,
+                "upstream_body": body if body is not None else raw_text[:2000],
+            },
+        )
 
     if resp.status_code == 204 or not resp.content:
         return {}
@@ -81,6 +102,7 @@ async def _refresh_session(sess: dict) -> Optional[dict]:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         if r.status_code >= 400:
+            logger.warning("Brevo token refresh failed: HTTP %s | body=%s", r.status_code, (r.text or "")[:1000])
             return None
         t = r.json()
     except httpx.RequestError:
@@ -91,6 +113,8 @@ async def _refresh_session(sess: dict) -> Optional[dict]:
         "refresh_token": t.get("refresh_token", sess["refresh_token"]),
         "expires_at": time.time() + t.get("expires_in", 3600),
     }
+    if t.get("scope"):
+        update["granted_scopes"] = t["scope"]
     await db.sessions.update_one({"_id": sess["_id"]}, {"$set": update})
     sess.update(update)
     return sess
@@ -175,11 +199,14 @@ async def brevo_callback(
         return back_with_error(f"Could not reach Brevo: {e}")
 
     if r.status_code >= 400:
+        logger.warning("Brevo token exchange failed: HTTP %s | body=%s", r.status_code, (r.text or "")[:2000])
         return back_with_error("Token exchange failed")
     tok = r.json()
     access_token = tok["access_token"]
     refresh_token = tok.get("refresh_token", "")
     expires_at = time.time() + tok.get("expires_in", 3600)
+    granted_scopes = tok.get("scope", "")
+    logger.info("Brevo OAuth granted scopes: %s", granted_scopes)
 
     # Fetch account for display
     account = {}
@@ -194,6 +221,7 @@ async def brevo_callback(
         "access_token": access_token,
         "refresh_token": refresh_token,
         "expires_at": expires_at,
+        "granted_scopes": granted_scopes,
         "account": {
             "email": account.get("email"),
             "firstName": account.get("firstName"),
@@ -209,7 +237,10 @@ async def brevo_callback(
 
 @api_router.get("/auth/me")
 async def auth_me(sess: dict = Depends(get_session)):
-    return {"account": sess.get("account", {})}
+    return {
+        "account": sess.get("account", {}),
+        "granted_scopes": sess.get("granted_scopes", ""),
+    }
 
 
 @api_router.post("/auth/logout")
@@ -274,9 +305,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
 
 
 @app.on_event("shutdown")

@@ -18,12 +18,18 @@ async function req(path: string, token: string, opts: RequestInit = {}) {
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
     const detail = data?.detail;
-    const msg =
+    let msg =
       (detail && (detail.message || (typeof detail === "string" ? detail : null))) ||
       data?.message ||
       `Request failed (${res.status})`;
-    const err: any = new Error(typeof msg === "string" ? msg : "Request failed");
+    if (typeof msg !== "string") msg = "Request failed";
+    const upstream = detail && typeof detail === "object" ? detail.upstream_status : undefined;
+    if (upstream && upstream !== res.status) msg = `${msg} (Brevo HTTP ${upstream})`;
+    const err: any = new Error(msg);
     err.status = res.status;
+    err.upstreamStatus = upstream;
+    err.brevoCode = detail && typeof detail === "object" ? detail.brevo_code : undefined;
+    err.upstreamBody = detail && typeof detail === "object" ? detail.upstream_body : undefined;
     throw err;
   }
   return data;
