@@ -20,29 +20,34 @@ const FEATURES = [
 // Decorative sample bars for the floating stat card (heights are illustrative).
 const BARS = [0.45, 0.7, 0.55, 0.9, 0.65];
 
-function ProductPreview() {
+function ProductPreview({ compact }: { compact: boolean }) {
+  const cardWidth = compact ? 140 : 168;
+  const barH = compact ? 32 : 44;
+  const valueSize = compact ? 24 : 30;
+  const chipSize = compact ? 28 : 34;
+
   return (
     <View style={styles.preview} pointerEvents="none">
       {/* Primary floating stat card */}
-      <View style={[styles.statCard, styles.statCardTransform]}>
-        <View style={styles.barsRow}>
+      <View style={[styles.statCard, styles.statCardTransform, { width: cardWidth, padding: compact ? spacing.md : spacing.lg }]}>
+        <View style={[styles.barsRow, { height: barH, marginBottom: compact ? spacing.sm : spacing.md }]}>
           {BARS.map((h, i) => (
             <View
               key={i}
               style={[
                 styles.bar,
-                { height: 44 * h, backgroundColor: chartColors[i % chartColors.length] },
+                { height: barH * h, backgroundColor: chartColors[i % chartColors.length] },
               ]}
             />
           ))}
         </View>
         <Text style={styles.statLabel}>Open rate</Text>
-        <Text style={styles.statValue}>42%</Text>
+        <Text style={[styles.statValue, { fontSize: valueSize }]}>42%</Text>
       </View>
 
-      {/* Overlapping contacts chip card */}
+      {/* Overlapping contacts chip card (flex-layered, no fixed offsets) */}
       <View style={[styles.contactsCard, styles.contactsCardTransform]}>
-        <IconChip icon="people" size={34} />
+        <IconChip icon="people" size={chipSize} />
         <View>
           <Text style={styles.contactsValue}>5,200</Text>
           <Text style={styles.contactsLabel}>contacts</Text>
@@ -73,7 +78,10 @@ export default function LoginScreen() {
     // On success, the root gate redirects to the app automatically.
   };
 
-  const heroHeight = Math.round(height * 0.52);
+  // Decoration is optional: scale down when space is limited, hide entirely
+  // on very short viewports so logo + eyebrow + heading always stay clean.
+  const showCards = height >= 620;
+  const compact = height < 780;
 
   return (
     <View style={styles.container} testID="login-screen">
@@ -81,12 +89,16 @@ export default function LoginScreen() {
         colors={[colors.heroGradientFrom, colors.heroGradientTo]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={[styles.hero, { height: heroHeight }]}
+        style={styles.hero}
       >
         <View style={[styles.heroContent, { paddingTop: insets.top + spacing.lg }]}>
           <Image source={BREVO_LOGO} style={styles.logo} contentFit="contain" />
 
-          <ProductPreview />
+          {showCards ? (
+            <ProductPreview compact={compact} />
+          ) : (
+            <View style={styles.spacer} />
+          )}
 
           <View style={styles.heroCopy}>
             <Text style={styles.kicker}>CRM & ANALYTICS</Text>
@@ -123,53 +135,46 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   hero: {
+    flex: 1,
+    minHeight: 240,
     justifyContent: "flex-end",
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
     overflow: "hidden",
   },
+  // Flex column: logo (top) → cards (flexible middle) → heading (bottom).
   heroContent: { padding: spacing.xl, flex: 1 },
   logo: { width: 108, height: 32 },
+  spacer: { flex: 1, minHeight: spacing.lg },
 
-  // Decorative floating product preview (mid-hero).
+  // Decorative floating product preview (flexible middle band).
   preview: {
     flex: 1,
+    minHeight: 140,
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: spacing.md,
+    marginVertical: spacing.sm,
   },
   statCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: radius.lg,
-    padding: spacing.lg,
-    width: 168,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.18,
     shadowRadius: 16,
     elevation: 8,
   },
-  statCardTransform: { transform: [{ rotate: "-4deg" }, { translateX: -18 }] },
-  barsRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 6,
-    height: 44,
-    marginBottom: spacing.md,
-  },
+  statCardTransform: { transform: [{ rotate: "-4deg" }, { translateX: -14 }] },
+  barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
   bar: { flex: 1, borderRadius: 3 },
   statLabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, fontFamily: fonts.semibold },
-  statValue: {
-    fontSize: 30,
-    color: colors.onSurface,
-    fontFamily: fonts.bold,
-    letterSpacing: -0.5,
-    marginTop: 2,
-  },
+  statValue: { color: colors.onSurface, fontFamily: fonts.bold, letterSpacing: -0.5, marginTop: 2 },
+
+  // Layered via negative margin + alignSelf (no fixed absolute offsets).
   contactsCard: {
-    position: "absolute",
-    right: 24,
-    bottom: 6,
+    alignSelf: "flex-end",
+    marginTop: -22,
+    marginRight: spacing.lg,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
@@ -184,12 +189,7 @@ const styles = StyleSheet.create({
     elevation: 7,
   },
   contactsCardTransform: { transform: [{ rotate: "5deg" }] },
-  contactsValue: {
-    fontSize: font.lg,
-    color: colors.onSurface,
-    fontFamily: fonts.bold,
-    letterSpacing: -0.3,
-  },
+  contactsValue: { fontSize: font.lg, color: colors.onSurface, fontFamily: fonts.bold, letterSpacing: -0.3 },
   contactsLabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, fontFamily: fonts.medium },
 
   heroCopy: {},
