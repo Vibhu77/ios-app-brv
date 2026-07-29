@@ -6,6 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import time
 import secrets
+import asyncio
 import logging
 import urllib.parse
 from pathlib import Path
@@ -87,7 +88,7 @@ async def brevo(method: str, path: str, access_token: str, params: dict | None =
 # are propagated so real failures still surface.
 async def brevo_paginated(
     path: str,
-    access_token: str,
+    sess: dict,
     list_key: str,
     page_size: int = 50,
     max_pages: int = 60,
@@ -103,7 +104,7 @@ async def brevo_paginated(
         if extra_params:
             params.update(extra_params)
         try:
-            data = await brevo("GET", path, access_token, params=params)
+            data = await brevo_authed("GET", path, sess, params=params)
             consecutive_failures = 0
         except HTTPException as e:
             if e.status_code < 500:
@@ -140,6 +141,21 @@ def _bearer(authorization: Optional[str]) -> Optional[str]:
     return authorization.split(" ", 1)[1].strip()
 
 
+# Per-session refresh locks (single-process FastAPI). Guards against concurrent
+# refreshes clobbering each other during Brevo refresh-token rotation.
+_refresh_locks: dict[str, asyncio.Lock] = {}
+_refresh_locks_guard = asyncio.Lock()
+
+
+async def _lock_for(session_token: str) -> asyncio.Lock:
+    async with _refresh_locks_guard:
+        lock = _refresh_locks.get(session_token)
+        if lock is None:
+            lock = asyncio.Lock()
+            _refresh_locks[session_token] = lock
+        return lock
+
+
 async def _refresh_session(sess: dict) -> Optional[dict]:
     try:
         async with httpx.AsyncClient(timeout=30.0) as c:
@@ -162,6 +178,7 @@ async def _refresh_session(sess: dict) -> Optional[dict]:
 
     update = {
         "access_token": t["access_token"],
+        # Persist rotated refresh_token if Brevo returned a new one.
         "refresh_token": t.get("refresh_token", sess["refresh_token"]),
         "expires_at": time.time() + t.get("expires_in", 3600),
     }
@@ -172,16 +189,53 @@ async def _refresh_session(sess: dict) -> Optional[dict]:
     return sess
 
 
+# Race-safe refresh: only one coroutine refreshes per session. After acquiring
+# the lock we re-read the session; if another coroutine already refreshed (the
+# access token changed vs. the stale one we started with) we skip and reuse it.
+async def refresh_session_if_needed(sess: dict, stale_access_token: Optional[str] = None) -> Optional[dict]:
+    lock = await _lock_for(sess["session_token"])
+    async with lock:
+        current = await db.sessions.find_one({"_id": sess["_id"]})
+        if not current:
+            return None
+        if stale_access_token and current.get("access_token") != stale_access_token:
+            sess.update(current)
+            return sess
+        return await _refresh_session(current)
+
+
+# Proxy a Brevo call for a session. On an upstream 401 (expired/revoked access
+# token or clock skew) refresh the token ONCE under the per-session lock and
+# retry the upstream call exactly once. Never loops.
+async def brevo_authed(
+    method: str, path: str, sess: dict, params: dict | None = None, json_body: dict | None = None
+):
+    try:
+        return await brevo(method, path, sess["access_token"], params=params, json_body=json_body)
+    except HTTPException as e:
+        if e.status_code != 401:
+            raise
+        logger.info("Relayed Brevo 401 on %s %s — refreshing access token and retrying once", method, path)
+        refreshed = await refresh_session_if_needed(sess, sess["access_token"])
+        if not refreshed:
+            logger.info("Token refresh failed after Brevo 401 — forcing re-login")
+            raise HTTPException(status_code=401, detail={"message": "Session expired. Please sign in again."})
+        return await brevo(method, path, refreshed["access_token"], params=params, json_body=json_body)
+
+
 async def get_session(authorization: Optional[str] = Header(None)) -> dict:
     token = _bearer(authorization)
     if not token:
+        logger.info("Session-check 401: no bearer token on request")
         raise HTTPException(status_code=401, detail={"message": "Not authenticated"})
     sess = await db.sessions.find_one({"session_token": token})
     if not sess:
+        logger.info("Session-check 401: unknown session token")
         raise HTTPException(status_code=401, detail={"message": "Session expired. Please sign in again."})
     if sess.get("expires_at", 0) <= time.time() + 30:
-        refreshed = await _refresh_session(sess)
+        refreshed = await refresh_session_if_needed(sess, sess.get("access_token"))
         if not refreshed:
+            logger.info("Session-check 401: proactive token refresh failed")
             raise HTTPException(status_code=401, detail={"message": "Session expired. Please sign in again."})
         sess = refreshed
     return sess
@@ -307,14 +361,14 @@ async def auth_logout(authorization: Optional[str] = Header(None)):
 @api_router.get("/brevo/campaigns")
 async def list_campaigns(sess: dict = Depends(get_session)):
     return await brevo_paginated(
-        "/emailCampaigns", sess["access_token"], "campaigns",
+        "/emailCampaigns", sess, "campaigns",
         extra_params={"statistics": "globalStats", "sort": "desc", "excludeHtmlContent": "true"},
     )
 
 
 @api_router.get("/brevo/campaigns/{campaign_id}")
 async def get_campaign(campaign_id: int, sess: dict = Depends(get_session)):
-    return await brevo("GET", f"/emailCampaigns/{campaign_id}", sess["access_token"], params={"statistics": "globalStats"})
+    return await brevo_authed("GET", f"/emailCampaigns/{campaign_id}", sess, params={"statistics": "globalStats"})
 
 
 @api_router.get("/brevo/contacts")
@@ -330,7 +384,7 @@ async def list_contacts(
     limit = max(1, min(limit, 50))  # Brevo 500s at limit>=~100; cap at 50.
     params = {"limit": limit, "offset": max(0, offset), "sort": "desc"}
     try:
-        data = await brevo("GET", "/contacts", sess["access_token"], params=params)
+        data = await brevo_authed("GET", "/contacts", sess, params=params)
     except HTTPException as e:
         if e.status_code < 500:
             raise
@@ -341,29 +395,29 @@ async def list_contacts(
 
 @api_router.get("/brevo/attributes")
 async def get_attributes(sess: dict = Depends(get_session)):
-    return await brevo("GET", "/contacts/attributes", sess["access_token"])
+    return await brevo_authed("GET", "/contacts/attributes", sess)
 
 
 @api_router.get("/brevo/contacts/{identifier}/stats")
 async def contact_stats(identifier: str, sess: dict = Depends(get_session)):
-    return await brevo("GET", f"/contacts/{identifier}/campaignStats", sess["access_token"])
+    return await brevo_authed("GET", f"/contacts/{identifier}/campaignStats", sess)
 
 
 @api_router.get("/brevo/contacts/{identifier}")
 async def get_contact(identifier: str, sess: dict = Depends(get_session)):
-    return await brevo("GET", f"/contacts/{identifier}", sess["access_token"])
+    return await brevo_authed("GET", f"/contacts/{identifier}", sess)
 
 
 @api_router.post("/brevo/contacts")
 async def create_contact(request: Request, sess: dict = Depends(get_session)):
     body = await request.json()
-    return await brevo("POST", "/contacts", sess["access_token"], json_body=body)
+    return await brevo_authed("POST", "/contacts", sess, json_body=body)
 
 
 @api_router.put("/brevo/contacts/{identifier}")
 async def update_contact(identifier: str, request: Request, sess: dict = Depends(get_session)):
     body = await request.json()
-    return await brevo("PUT", f"/contacts/{identifier}", sess["access_token"], json_body=body)
+    return await brevo_authed("PUT", f"/contacts/{identifier}", sess, json_body=body)
 
 
 app.include_router(api_router)

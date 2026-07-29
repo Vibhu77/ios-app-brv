@@ -2,6 +2,15 @@
 // The session token is sent as `Authorization: Bearer <token>` on every request.
 const API = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
 
+// A single global handler invoked when the backend surfaces a 401 (i.e. the
+// server already tried to refresh the Brevo token and failed → session is truly
+// expired). BrevoContext registers it to clear the session and redirect to
+// /login exactly once. Kept out of `req` state so there's never a retry loop.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  onUnauthorized = fn;
+}
+
 export const LOGIN_URL = (redirect: string) =>
   `${API}/auth/brevo/login?redirect=${encodeURIComponent(redirect)}`;
 
@@ -17,6 +26,7 @@ async function req(path: string, token: string, opts: RequestInit = {}) {
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
+    if (res.status === 401) onUnauthorized?.();
     const detail = data?.detail;
     let msg =
       (detail && (detail.message || (typeof detail === "string" ? detail : null))) ||

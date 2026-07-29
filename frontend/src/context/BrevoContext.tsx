@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
+import { router } from "expo-router";
 import { storage } from "@/src/utils/storage";
-import { brevo, LOGIN_URL, Account } from "@/src/lib/brevo";
+import { brevo, LOGIN_URL, Account, setUnauthorizedHandler } from "@/src/lib/brevo";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -24,6 +25,9 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState("");
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
+  // Guards the expired-session redirect so a burst of parallel 401s only
+  // clears the session + navigates to /login once (no loop, no thrash).
+  const expiredRef = useRef(false);
 
   const hydrate = useCallback(async (t: string) => {
     if (!t) {
@@ -43,6 +47,23 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Single, clean handler for a surfaced 401 (backend refresh already failed).
+  // Clears the local session and redirects to /login exactly once — works from
+  // any screen, including the contact detail stack route.
+  const handleUnauthorized = useCallback(async () => {
+    if (expiredRef.current) return;
+    expiredRef.current = true;
+    await storage.secureRemove(KEY);
+    setToken("");
+    setAccount(null);
+    router.replace("/login");
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(handleUnauthorized);
+    return () => setUnauthorizedHandler(null);
+  }, [handleUnauthorized]);
+
   useEffect(() => {
     (async () => {
       const stored = (await storage.secureGet<string>(KEY, "")) || "";
@@ -54,6 +75,7 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
 
   const setSession = useCallback(
     async (t: string) => {
+      expiredRef.current = false; // fresh session — re-arm the 401 guard
       await storage.secureSet(KEY, t);
       setToken(t);
       await hydrate(t);
