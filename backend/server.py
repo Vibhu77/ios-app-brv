@@ -318,11 +318,25 @@ async def get_campaign(campaign_id: int, sess: dict = Depends(get_session)):
 
 
 @api_router.get("/brevo/contacts")
-async def list_contacts(sess: dict = Depends(get_session)):
-    return await brevo_paginated(
-        "/contacts", sess["access_token"], "contacts",
-        extra_params={"sort": "desc"},
-    )
+async def list_contacts(
+    sess: dict = Depends(get_session),
+    limit: int = 50,
+    offset: int = 0,
+):
+    # Single-page fetch for fast initial load + infinite scroll. The client
+    # drives pagination (offset += limit) and stops when a page returns fewer
+    # than `limit` items. Keeps per-page 5xx resilience: a failing page yields
+    # an empty page instead of blanking the screen.
+    limit = max(1, min(limit, 50))  # Brevo 500s at limit>=~100; cap at 50.
+    params = {"limit": limit, "offset": max(0, offset), "sort": "desc"}
+    try:
+        data = await brevo("GET", "/contacts", sess["access_token"], params=params)
+    except HTTPException as e:
+        if e.status_code < 500:
+            raise
+        logger.warning("Contacts page skipped offset=%s: %s", offset, getattr(e, "detail", e))
+        return {"count": 0, "contacts": []}
+    return {"count": data.get("count"), "contacts": data.get("contacts") or []}
 
 
 @api_router.get("/brevo/attributes")

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput } from "react-native";
+import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
@@ -17,13 +17,18 @@ function contactName(c: Contact) {
   return full || a.NAME || "";
 }
 
+const PAGE_SIZE = 50;
+
 export default function ContactsScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
   const { token, isConnected } = useBrevo();
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -33,6 +38,7 @@ export default function ContactsScreen() {
     scrollY.value = e.contentOffset.y;
   });
 
+  // Fetch only the first page for a fast (~1s) initial render.
   const load = useCallback(async () => {
     if (!token) {
       setLoading(false);
@@ -40,8 +46,11 @@ export default function ContactsScreen() {
     }
     setError(null);
     try {
-      const res = await brevo.listContacts(token);
-      setContacts(res?.contacts || []);
+      const res = await brevo.listContacts(token, 0, PAGE_SIZE);
+      const list = res?.contacts || [];
+      setContacts(list);
+      setTotal(res?.count ?? null);
+      setHasMore(list.length >= PAGE_SIZE);
     } catch (e: any) {
       setError(e?.message || "Failed to load contacts");
     } finally {
@@ -50,9 +59,32 @@ export default function ContactsScreen() {
     }
   }, [token]);
 
+  // Append the next page as the user nears the bottom. Stops at end-of-data
+  // (a page shorter than PAGE_SIZE). Disabled while searching to keep the
+  // filtered list stable.
+  const loadMore = useCallback(async () => {
+    if (!token || loadingMore || !hasMore || query.trim()) return;
+    setLoadingMore(true);
+    try {
+      const res = await brevo.listContacts(token, contacts.length, PAGE_SIZE);
+      const list = res?.contacts || [];
+      setContacts((prev) => {
+        const seen = new Set(prev.map((c) => c.id));
+        return [...prev, ...list.filter((c: Contact) => !seen.has(c.id))];
+      });
+      if (res?.count != null) setTotal(res.count);
+      setHasMore(list.length >= PAGE_SIZE);
+    } catch {
+      setHasMore(false);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [token, loadingMore, hasMore, query, contacts.length]);
+
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
+      setHasMore(true);
       load();
     }, [load])
   );
@@ -91,7 +123,7 @@ export default function ContactsScreen() {
     <View style={styles.headerBlock}>
       <LargeTitle
         title="Contacts"
-        right={<Text style={styles.count}>{contacts.length}</Text>}
+        right={<Text style={styles.count}>{total ?? contacts.length}</Text>}
       />
       {searchBox}
     </View>
@@ -158,6 +190,15 @@ export default function ContactsScreen() {
           ListHeaderComponent={listHeader}
           onScroll={onScroll}
           scrollEventThrottle={16}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footer}>
+                <ActivityIndicator color={colors.brandPrimary} />
+              </View>
+            ) : null
+          }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           ListEmptyComponent={
             <View style={{ paddingTop: spacing.xl, paddingHorizontal: spacing.lg }}>
@@ -237,6 +278,7 @@ const styles = StyleSheet.create({
   rowSecondary: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: 2 },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 72 },
   skRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
+  footer: { paddingVertical: spacing.lg, alignItems: "center" },
   fab: {
     position: "absolute",
     right: spacing.lg,
