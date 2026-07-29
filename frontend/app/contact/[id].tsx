@@ -61,7 +61,17 @@ export default function ContactDetail() {
 
   return (
     <View style={styles.container}>
-      <GlassHeader title={name || "Contact"} onBack={() => router.back()} />
+      <GlassHeader
+        title={name || "Contact"}
+        onBack={() => {
+          console.log("[contact-detail] back pressed, canGoBack =", router.canGoBack());
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/(tabs)/contacts");
+          }
+        }}
+      />
       {loading ? (
         <Loader />
       ) : error ? (
