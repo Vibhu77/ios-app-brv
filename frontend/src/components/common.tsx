@@ -251,6 +251,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  kpiChip: { marginBottom: spacing.md, alignSelf: "flex-start" },
   kpiValue: { fontSize: font.xxl, fontWeight: "800", color: colors.onSurface, letterSpacing: -0.5 },
   kpiLabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: spacing.xs, fontWeight: "600" },
   kpiSub: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 2 },

@@ -73,6 +73,7 @@ export type Campaign = {
   status?: string;
   sentDate?: string;
   createdAt?: string;
+  sender?: { name?: string; email?: string; id?: number };
   statistics?: { globalStats?: GlobalStats };
 };
 

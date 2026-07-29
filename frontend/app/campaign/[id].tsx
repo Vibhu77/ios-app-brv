@@ -1,13 +1,14 @@
-import React, { useCallback, useState } from "react";
-import { StyleSheet, Text, View, ScrollView } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { StyleSheet, Text, View, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { colors, spacing, radius, font } from "@/src/theme";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
-import { StatRow, StateView, Loader, Card, StatusBadge } from "@/src/components/common";
+import { StateView, Loader, StatusBadge, KpiCard } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
-import { nf, pctStr, pctVal, fmtDateTime } from "@/src/lib/format";
+import { nf, pctStr, fmtDateTime } from "@/src/lib/format";
 
 export default function CampaignDetail() {
   const insets = useSafeAreaInsets();
@@ -17,12 +18,14 @@ export default function CampaignDetail() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const load = useCallback(async () => {
+    if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await brevo.getCampaign(apiKey, id);
+      const res = await brevo.getCampaign(token, id);
       setCampaign(res);
     } catch (e: any) {
       setError(e?.message || "Failed to load campaign");
@@ -31,18 +34,67 @@ export default function CampaignDetail() {
     }
   }, [token, id]);
 
-  React.useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  useEffect(() => {
+    // Close the overflow menu whenever a load finishes / errors.
+    setMenuOpen(false);
+  }, [loading, error]);
+
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/campaigns");
+  };
 
   const g = campaign?.statistics?.globalStats || {};
-  const openRate = pctVal(g.uniqueViews, g.delivered);
-  const clickRate = pctVal(g.uniqueClicks, g.delivered);
-  const deliveryRate = pctVal(g.delivered, g.sent);
+  const isSuspended = campaign?.status === "suspended";
+  const senderText = campaign?.sender
+    ? [campaign.sender.name, campaign.sender.email].filter(Boolean).join(" · ")
+    : null;
 
   return (
     <View style={styles.container}>
-      <GlassHeader title={campaign?.name || "Campaign"} onBack={() => router.back()} />
+      <GlassHeader
+        title={campaign?.name || "Campaign"}
+        onBack={goBack}
+        right={
+          <Pressable
+            testID="campaign-menu-button"
+            onPress={() => setMenuOpen((o) => !o)}
+            hitSlop={12}
+            style={styles.menuBtn}
+          >
+            <Ionicons name="ellipsis-horizontal" size={22} color={colors.onSurface} />
+          </Pressable>
+        }
+      />
+
+      {/* Overflow menu overlay (UI only — actions are not wired yet). */}
+      {menuOpen ? (
+        <>
+          <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)} testID="campaign-menu-backdrop" />
+          <View style={[styles.menu, { top: insets.top + 50 }]} testID="campaign-menu">
+            <Pressable disabled style={styles.menuItem} testID="campaign-suspend-item">
+              <Ionicons
+                name={isSuspended ? "play-outline" : "pause-outline"}
+                size={18}
+                color={colors.onSurfaceTertiary}
+              />
+              <View style={styles.menuItemText}>
+                <Text style={styles.menuItemLabel}>
+                  {isSuspended ? "Resume campaign" : "Suspend campaign"}
+                </Text>
+                <Text style={styles.menuItemHint}>Coming soon</Text>
+              </View>
+            </Pressable>
+          </View>
+        </>
+      ) : null}
+
       {loading ? (
         <Loader />
       ) : error ? (
@@ -56,6 +108,15 @@ export default function CampaignDetail() {
             testID="campaign-detail-error"
           />
         </View>
+      ) : !campaign ? (
+        <View style={{ flex: 1, paddingTop: insets.top + 52 }}>
+          <StateView
+            icon="mail-outline"
+            title="Campaign not found"
+            message="This campaign is no longer available."
+            testID="campaign-detail-empty"
+          />
+        </View>
       ) : (
         <ScrollView
           testID="campaign-detail-scroll"
@@ -66,85 +127,128 @@ export default function CampaignDetail() {
           }}
           showsVerticalScrollIndicator={false}
         >
+          {/* Header block */}
           <View style={styles.titleRow}>
             <Text style={styles.name} numberOfLines={3}>
-              {campaign?.name}
+              {campaign.name}
             </Text>
-            <StatusBadge status={campaign?.status} />
+            <StatusBadge status={campaign.status} />
           </View>
-          {campaign?.subject ? <Text style={styles.subject}>{campaign.subject}</Text> : null}
-          <Text style={styles.date}>{fmtDateTime(campaign?.sentDate || campaign?.createdAt)}</Text>
-
-          {/* Hero metric */}
-          <View style={styles.hero} testID="campaign-hero-metric">
-            <Text style={styles.heroValue}>{pctStr(g.uniqueViews, g.delivered)}</Text>
-            <Text style={styles.heroLabel}>Unique open rate</Text>
-            <View style={styles.heroSplit}>
-              <View style={styles.heroSplitItem}>
-                <Text style={styles.heroSplitValue}>{pctStr(g.uniqueClicks, g.delivered)}</Text>
-                <Text style={styles.heroSplitLabel}>Click rate</Text>
-              </View>
-              <View style={styles.heroVDivider} />
-              <View style={styles.heroSplitItem}>
-                <Text style={styles.heroSplitValue}>{nf(g.sent)}</Text>
-                <Text style={styles.heroSplitLabel}>Emails sent</Text>
-              </View>
+          {campaign.subject ? <Text style={styles.subject}>{campaign.subject}</Text> : null}
+          {senderText ? (
+            <View style={styles.metaRow}>
+              <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
+              <Text style={styles.meta}>{senderText}</Text>
             </View>
+          ) : null}
+          <View style={styles.metaRow}>
+            <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceTertiary} />
+            <Text style={styles.meta}>
+              {campaign.sentDate ? "Sent " : "Created "}
+              {fmtDateTime(campaign.sentDate || campaign.createdAt)}
+            </Text>
           </View>
 
+          {/* KPI cards */}
           <Text style={styles.section}>Performance</Text>
-          <Card>
-            <StatRow label="Delivered" value={`${nf(g.delivered)}`} pct={deliveryRate} />
-            <Divider />
-            <StatRow label="Unique opens" value={nf(g.uniqueViews)} pct={openRate} />
-            <Divider />
-            <StatRow label="Total opens" value={nf(g.viewed)} />
-            <Divider />
-            <StatRow label="Unique clicks" value={nf(g.uniqueClicks)} pct={clickRate} />
-            <Divider />
-            <StatRow label="Total clickers" value={nf(g.clickers)} />
-          </Card>
-
-          <Text style={styles.section}>Deliverability</Text>
-          <Card>
-            <StatRow label="Soft bounces" value={nf(g.softBounces)} color={colors.warning} />
-            <Divider />
-            <StatRow label="Hard bounces" value={nf(g.hardBounces)} color={colors.error} />
-            <Divider />
-            <StatRow label="Unsubscriptions" value={nf(g.unsubscriptions)} color={colors.warning} />
-            <Divider />
-            <StatRow label="Complaints" value={nf(g.complaints)} color={colors.error} />
-          </Card>
+          <View style={styles.kpiRow}>
+            <KpiCard
+              icon="checkmark-done-outline"
+              label="Delivered"
+              value={nf(g.delivered)}
+              sub={`${pctStr(g.delivered, g.sent)} delivery rate`}
+              testID="kpi-delivered"
+            />
+            <KpiCard
+              icon="mail-open-outline"
+              label="Opens"
+              value={nf(g.uniqueViews)}
+              sub={`${pctStr(g.uniqueViews, g.delivered)} open rate`}
+              testID="kpi-opens"
+            />
+          </View>
+          <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
+            <KpiCard
+              icon="link-outline"
+              label="Clicks"
+              value={nf(g.uniqueClicks)}
+              sub={`${pctStr(g.uniqueClicks, g.delivered)} click-through`}
+              testID="kpi-clicks"
+            />
+            <KpiCard
+              icon="person-remove-outline"
+              label="Unsubscribes"
+              value={nf(g.unsubscriptions)}
+              sub={`${pctStr(g.unsubscriptions, g.delivered)} of delivered`}
+              testID="kpi-unsubscribes"
+            />
+          </View>
+          <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
+            <KpiCard
+              icon="warning-outline"
+              label="Bounces"
+              value={nf((g.softBounces || 0) + (g.hardBounces || 0))}
+              sub={`${nf(g.softBounces)} soft · ${nf(g.hardBounces)} hard`}
+              testID="kpi-bounces"
+            />
+            <View style={styles.kpiSpacer} />
+          </View>
         </ScrollView>
       )}
     </View>
   );
 }
 
-function Divider() {
-  return <View style={styles.divider} />;
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
-  name: { flex: 1, fontSize: font.xxl, fontWeight: "800", color: colors.onSurface, letterSpacing: -0.5 },
-  subject: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.xs },
-  date: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.xs },
-  hero: {
-    backgroundColor: colors.brandTertiary,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-    marginTop: spacing.lg,
-    alignItems: "center",
+  menuBtn: { padding: spacing.xs },
+  menuBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 150,
   },
-  heroValue: { fontSize: 44, fontWeight: "800", color: colors.onSurface, letterSpacing: -1 },
-  heroLabel: { fontSize: font.base, color: colors.onSurfaceSecondary, fontWeight: "600", marginTop: 2 },
-  heroSplit: { flexDirection: "row", alignItems: "center", marginTop: spacing.lg, alignSelf: "stretch" },
-  heroSplitItem: { flex: 1, alignItems: "center" },
-  heroSplitValue: { fontSize: font.xl, fontWeight: "800", color: colors.onSurface },
-  heroSplitLabel: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 2 },
-  heroVDivider: { width: StyleSheet.hairlineWidth, height: 36, backgroundColor: colors.borderStrong },
-  section: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface, marginTop: spacing.xl, marginBottom: spacing.md },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider },
+  menu: {
+    position: "absolute",
+    right: spacing.md,
+    zIndex: 200,
+    elevation: 200,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    paddingVertical: spacing.xs,
+    minWidth: 220,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    opacity: 0.55,
+  },
+  menuItemText: { flex: 1 },
+  menuItemLabel: { fontSize: font.base, color: colors.onSurface, fontFamily: fonts.semibold },
+  menuItemHint: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 1 },
+  titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
+  name: { flex: 1, fontSize: font.xxl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5 },
+  subject: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.sm },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
+  meta: { fontSize: font.sm, color: colors.onSurfaceTertiary },
+  section: {
+    fontSize: font.lg,
+    fontFamily: fonts.bold,
+    color: colors.onSurface,
+    marginTop: spacing.xl,
+    marginBottom: spacing.md,
+  },
+  kpiRow: { flexDirection: "row", gap: spacing.md },
+  kpiSpacer: { flex: 1 },
 });
