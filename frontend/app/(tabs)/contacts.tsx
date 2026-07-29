@@ -17,7 +17,7 @@ function contactName(c: Contact) {
   return full || a.NAME || "";
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 export default function ContactsScreen() {
   const insets = useSafeAreaInsets();

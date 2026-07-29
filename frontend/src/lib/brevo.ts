@@ -95,7 +95,7 @@ export const brevo = {
   // data (backend paginates internally at 50/page to dodge Brevo's limit=100 bug)
   listCampaigns: (token: string) => req("/brevo/campaigns", token),
   getCampaign: (token: string, id: number | string) => req(`/brevo/campaigns/${id}`, token),
-  listContacts: (token: string, offset = 0, limit = 50) =>
+  listContacts: (token: string, offset = 0, limit = 20) =>
     req(`/brevo/contacts?limit=${limit}&offset=${offset}`, token),
   getContact: (token: string, id: number | string) =>
     req(`/brevo/contacts/${encodeURIComponent(String(id))}`, token),
