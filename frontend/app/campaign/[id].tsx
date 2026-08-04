@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { StyleSheet, Text, View, ScrollView, Pressable } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Pressable, Modal, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,18 +7,55 @@ import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
 import { StateView, Loader, StatusBadge, KpiCard } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
+import { useToast } from "@/src/context/ToastContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { nf, pctStr, fmtDateTime } from "@/src/lib/format";
+
+// States from which a campaign can be paused.
+const SUSPENDABLE = ["queued", "inProcess", "running", "scheduled"];
+
+type StatusAction = {
+  label: string;
+  target: string; // status to set
+  icon: keyof typeof Ionicons.glyphMap;
+  question: string;
+  confirm: string;
+};
+
+function actionFor(status?: string): StatusAction | null {
+  if (status === "suspended") {
+    return {
+      label: "Resume campaign",
+      target: "queued",
+      icon: "play-outline",
+      question: "Resume this campaign?",
+      confirm: "Resume",
+    };
+  }
+  if (status && SUSPENDABLE.includes(status)) {
+    return {
+      label: "Suspend campaign",
+      target: "suspended",
+      icon: "pause-outline",
+      question: "Suspend this campaign?",
+      confirm: "Suspend",
+    };
+  }
+  return null; // draft / sent / archive etc — no status action
+}
 
 export default function CampaignDetail() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { token } = useBrevo();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -41,7 +78,6 @@ export default function CampaignDetail() {
   );
 
   useEffect(() => {
-    // Close the overflow menu whenever a load finishes / errors.
     setMenuOpen(false);
   }, [loading, error]);
 
@@ -51,10 +87,37 @@ export default function CampaignDetail() {
   };
 
   const g = campaign?.statistics?.globalStats || {};
-  const isSuspended = campaign?.status === "suspended";
+  const action = actionFor(campaign?.status);
   const senderText = campaign?.sender
     ? [campaign.sender.name, campaign.sender.email].filter(Boolean).join(" · ")
     : null;
+
+  const applyStatus = async () => {
+    if (!action) return;
+    setBusy(true);
+    try {
+      await brevo.updateCampaignStatus(token, id, action.target);
+      setConfirmOpen(false);
+      toast.show(
+        action.target === "suspended" ? "Campaign suspended" : "Campaign resumed",
+        "success"
+      );
+      await load(); // refetch so the status badge updates
+    } catch (e: any) {
+      setConfirmOpen(false);
+      const status = e?.upstreamStatus || e?.status;
+      if (status === 403) {
+        toast.show(
+          "This action needs an updated permission. Please sign out and sign in again.",
+          "error"
+        );
+      } else {
+        toast.show(e?.message || "Couldn't update the campaign", "error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -62,34 +125,34 @@ export default function CampaignDetail() {
         title={campaign?.name || "Campaign"}
         onBack={goBack}
         right={
-          <Pressable
-            testID="campaign-menu-button"
-            onPress={() => setMenuOpen((o) => !o)}
-            hitSlop={12}
-            style={styles.menuBtn}
-          >
-            <Ionicons name="ellipsis-horizontal" size={22} color={colors.onSurface} />
-          </Pressable>
+          action ? (
+            <Pressable
+              testID="campaign-menu-button"
+              onPress={() => setMenuOpen((o) => !o)}
+              hitSlop={12}
+              style={styles.menuBtn}
+            >
+              <Ionicons name="ellipsis-horizontal" size={22} color={colors.onSurface} />
+            </Pressable>
+          ) : null
         }
       />
 
-      {/* Overflow menu overlay (UI only — actions are not wired yet). */}
-      {menuOpen ? (
+      {/* Overflow menu */}
+      {menuOpen && action ? (
         <>
           <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)} testID="campaign-menu-backdrop" />
           <View style={[styles.menu, { top: insets.top + 50 }]} testID="campaign-menu">
-            <Pressable disabled style={styles.menuItem} testID="campaign-suspend-item">
-              <Ionicons
-                name={isSuspended ? "play-outline" : "pause-outline"}
-                size={18}
-                color={colors.onSurfaceTertiary}
-              />
-              <View style={styles.menuItemText}>
-                <Text style={styles.menuItemLabel}>
-                  {isSuspended ? "Resume campaign" : "Suspend campaign"}
-                </Text>
-                <Text style={styles.menuItemHint}>Coming soon</Text>
-              </View>
+            <Pressable
+              style={({ pressed }) => [styles.menuItem, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface }]}
+              testID="campaign-status-action"
+              onPress={() => {
+                setMenuOpen(false);
+                setConfirmOpen(true);
+              }}
+            >
+              <Ionicons name={action.icon} size={18} color={colors.onSurface} />
+              <Text style={styles.menuItemLabel}>{action.label}</Text>
             </Pressable>
           </View>
         </>
@@ -195,6 +258,42 @@ export default function CampaignDetail() {
           </View>
         </ScrollView>
       )}
+
+      {/* Confirmation modal */}
+      <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard} testID="campaign-confirm-modal">
+            <Text style={styles.modalTitle}>{action?.question}</Text>
+            <Text style={styles.modalBody}>
+              {action?.target === "suspended"
+                ? "The campaign will stop sending until you resume it."
+                : "The campaign will be re-queued and may resume sending."}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                style={({ pressed }) => [styles.modalBtn, styles.modalCancel, { opacity: pressed ? 0.85 : 1 }]}
+                onPress={() => setConfirmOpen(false)}
+                disabled={busy}
+                testID="campaign-confirm-cancel"
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.modalBtn, styles.modalConfirm, { opacity: busy ? 0.6 : pressed ? 0.85 : 1 }]}
+                onPress={applyStatus}
+                disabled={busy}
+                testID="campaign-confirm-confirm"
+              >
+                {busy ? (
+                  <ActivityIndicator color={colors.onBrandPrimary} />
+                ) : (
+                  <Text style={styles.modalConfirmText}>{action?.confirm}</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -202,14 +301,7 @@ export default function CampaignDetail() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   menuBtn: { padding: spacing.xs },
-  menuBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 150,
-  },
+  menuBackdrop: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 150 },
   menu: {
     position: "absolute",
     right: spacing.md,
@@ -220,7 +312,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     paddingVertical: spacing.xs,
-    minWidth: 220,
+    minWidth: 210,
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.14,
@@ -232,11 +325,8 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    opacity: 0.55,
   },
-  menuItemText: { flex: 1 },
   menuItemLabel: { fontSize: font.base, color: colors.onSurface, fontFamily: fonts.semibold },
-  menuItemHint: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 1 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
   name: { flex: 1, fontSize: font.xxl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5 },
   subject: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.sm },
@@ -251,4 +341,27 @@ const styles = StyleSheet.create({
   },
   kpiRow: { flexDirection: "row", gap: spacing.md },
   kpiSpacer: { flex: 1 },
+  // Confirmation modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.xl,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+  },
+  modalTitle: { fontSize: font.xl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.3 },
+  modalBody: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.sm, lineHeight: 20 },
+  modalActions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xl },
+  modalBtn: { flex: 1, height: 48, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  modalCancel: { backgroundColor: colors.surfaceSecondary },
+  modalCancelText: { fontSize: font.lg, fontFamily: fonts.semibold, color: colors.onSurface },
+  modalConfirm: { backgroundColor: colors.brandPrimary },
+  modalConfirmText: { fontSize: font.lg, fontFamily: fonts.bold, color: colors.onBrandPrimary },
 });

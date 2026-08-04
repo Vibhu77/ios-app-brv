@@ -27,7 +27,7 @@ BREVO_TOKEN_URL = "https://oauth.brevo.com/realms/partner/oauth/token"
 CLIENT_ID = os.environ.get("BREVO_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("BREVO_CLIENT_SECRET", "")
 REDIRECT_URI = os.environ.get("BREVO_REDIRECT_URI", "")
-SCOPES = os.environ.get("BREVO_SCOPES", "account:read campaigns.email:read contacts:read contacts:write")
+SCOPES = os.environ.get("BREVO_SCOPES", "account:read campaigns.email:read campaigns.email:write contacts:read contacts:write")
 
 # --- Mongo ---
 mongo_url = os.environ["MONGO_URL"]
@@ -369,6 +369,17 @@ async def list_campaigns(sess: dict = Depends(get_session)):
 @api_router.get("/brevo/campaigns/{campaign_id}")
 async def get_campaign(campaign_id: int, sess: dict = Depends(get_session)):
     return await brevo_authed("GET", f"/emailCampaigns/{campaign_id}", sess, params={"statistics": "globalStats"})
+
+
+@api_router.put("/brevo/campaigns/{campaign_id}/status")
+async def update_campaign_status(campaign_id: int, request: Request, sess: dict = Depends(get_session)):
+    # Update a campaign's status (e.g. "suspended" to pause, "queued" to resume).
+    # Proxies to Brevo PUT /emailCampaigns/{id}/status (returns 204). Real Brevo
+    # 4xx (400 invalid transition, 403 insufficient_scope, 404 not found) pass
+    # through via brevo(); brevo_authed adds transparent token-refresh on 401.
+    body = await request.json()
+    await brevo_authed("PUT", f"/emailCampaigns/{campaign_id}/status", sess, json_body=body)
+    return {"ok": True, "status": body.get("status")}
 
 
 @api_router.get("/brevo/contacts")
