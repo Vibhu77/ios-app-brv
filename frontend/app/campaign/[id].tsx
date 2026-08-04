@@ -1,47 +1,56 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { StyleSheet, Text, View, ScrollView, Pressable, Modal, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
-import { StateView, Loader, StatusBadge, KpiCard } from "@/src/components/common";
+import { StateView, Loader, StatusBadge, IconChip } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { nf, pctStr, fmtDateTime } from "@/src/lib/format";
 
-// States from which a campaign can be paused.
-const SUSPENDABLE = ["queued", "inProcess", "running", "scheduled"];
+// Normalize Brevo status: case-insensitive + underscore/camelCase tolerant.
+// "in_process" | "inProcess" -> "inprocess", "Queued" -> "queued".
+const norm = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 type StatusAction = {
-  label: string;
   target: string; // status to set
   icon: keyof typeof Ionicons.glyphMap;
-  question: string;
   confirm: string;
+  question: string;
+  body: string;
+  tone: "warning" | "primary";
 };
 
+// STRICT rules:
+//   queued (scheduled) OR inprocess (running) -> Suspend
+//   suspended -> Resume
+//   everything else (draft, sent, archive, ...) -> no action
 function actionFor(status?: string): StatusAction | null {
-  if (status === "suspended") {
+  const n = norm(status);
+  if (n === "suspended") {
     return {
-      label: "Resume campaign",
       target: "queued",
-      icon: "play-outline",
-      question: "Resume this campaign?",
+      icon: "play",
       confirm: "Resume",
+      question: "Resume this campaign?",
+      body: "The campaign will be re-queued and may resume sending.",
+      tone: "primary",
     };
   }
-  if (status && SUSPENDABLE.includes(status)) {
+  if (n === "queued" || n === "inprocess") {
     return {
-      label: "Suspend campaign",
       target: "suspended",
-      icon: "pause-outline",
-      question: "Suspend this campaign?",
+      icon: "pause",
       confirm: "Suspend",
+      question: "Suspend this campaign?",
+      body: "The campaign will stop sending until you resume it.",
+      tone: "warning",
     };
   }
-  return null; // draft / sent / archive etc — no status action
+  return null;
 }
 
 export default function CampaignDetail() {
@@ -53,7 +62,6 @@ export default function CampaignDetail() {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -77,10 +85,6 @@ export default function CampaignDetail() {
     }, [load])
   );
 
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [loading, error]);
-
   const goBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(tabs)/campaigns");
@@ -102,7 +106,7 @@ export default function CampaignDetail() {
         action.target === "suspended" ? "Campaign suspended" : "Campaign resumed",
         "success"
       );
-      await load(); // refetch so the status badge updates
+      await load(); // refetch so the status badge flips
     } catch (e: any) {
       setConfirmOpen(false);
       const status = e?.upstreamStatus || e?.status;
@@ -119,44 +123,11 @@ export default function CampaignDetail() {
     }
   };
 
+  const isWarn = action?.tone === "warning";
+
   return (
     <View style={styles.container}>
-      <GlassHeader
-        title={campaign?.name || "Campaign"}
-        onBack={goBack}
-        right={
-          action ? (
-            <Pressable
-              testID="campaign-menu-button"
-              onPress={() => setMenuOpen((o) => !o)}
-              hitSlop={12}
-              style={styles.menuBtn}
-            >
-              <Ionicons name="ellipsis-horizontal" size={22} color={colors.onSurface} />
-            </Pressable>
-          ) : null
-        }
-      />
-
-      {/* Overflow menu */}
-      {menuOpen && action ? (
-        <>
-          <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)} testID="campaign-menu-backdrop" />
-          <View style={[styles.menu, { top: insets.top + 50 }]} testID="campaign-menu">
-            <Pressable
-              style={({ pressed }) => [styles.menuItem, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface }]}
-              testID="campaign-status-action"
-              onPress={() => {
-                setMenuOpen(false);
-                setConfirmOpen(true);
-              }}
-            >
-              <Ionicons name={action.icon} size={18} color={colors.onSurface} />
-              <Text style={styles.menuItemLabel}>{action.label}</Text>
-            </Pressable>
-          </View>
-        </>
-      ) : null}
+      <GlassHeader title={campaign?.name || "Campaign"} onBack={goBack} />
 
       {loading ? (
         <Loader />
@@ -212,49 +183,66 @@ export default function CampaignDetail() {
             </Text>
           </View>
 
-          {/* KPI cards */}
+          {/* Visible, labeled Suspend/Resume action (only for applicable states) */}
+          {action ? (
+            <Pressable
+              testID="campaign-status-action"
+              onPress={() => setConfirmOpen(true)}
+              style={({ pressed }) => [
+                styles.actionBtn,
+                isWarn ? styles.actionWarn : styles.actionPrimary,
+                { opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Ionicons
+                name={action.icon}
+                size={18}
+                color={isWarn ? colors.warningText : colors.onBrandPrimary}
+              />
+              <Text style={[styles.actionText, { color: isWarn ? colors.warningText : colors.onBrandPrimary }]}>
+                {action.confirm}
+              </Text>
+            </Pressable>
+          ) : null}
+
+          {/* KPI tiles — compact */}
           <Text style={styles.section}>Performance</Text>
-          <View style={styles.kpiRow}>
-            <KpiCard
+          <View style={styles.grid}>
+            <CompactStat
               icon="checkmark-done-outline"
               label="Delivered"
               value={nf(g.delivered)}
-              sub={`${pctStr(g.delivered, g.sent)} delivery rate`}
+              sub={`${pctStr(g.delivered, g.sent)} delivery`}
               testID="kpi-delivered"
             />
-            <KpiCard
+            <CompactStat
               icon="mail-open-outline"
               label="Opens"
               value={nf(g.uniqueViews)}
               sub={`${pctStr(g.uniqueViews, g.delivered)} open rate`}
               testID="kpi-opens"
             />
-          </View>
-          <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
-            <KpiCard
+            <CompactStat
               icon="link-outline"
               label="Clicks"
               value={nf(g.uniqueClicks)}
-              sub={`${pctStr(g.uniqueClicks, g.delivered)} click-through`}
+              sub={`${pctStr(g.uniqueClicks, g.delivered)} CTR`}
               testID="kpi-clicks"
             />
-            <KpiCard
+            <CompactStat
               icon="person-remove-outline"
               label="Unsubscribes"
               value={nf(g.unsubscriptions)}
-              sub={`${pctStr(g.unsubscriptions, g.delivered)} of delivered`}
+              sub={`${pctStr(g.unsubscriptions, g.delivered)} of sent`}
               testID="kpi-unsubscribes"
             />
-          </View>
-          <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
-            <KpiCard
+            <CompactStat
               icon="warning-outline"
               label="Bounces"
               value={nf((g.softBounces || 0) + (g.hardBounces || 0))}
               sub={`${nf(g.softBounces)} soft · ${nf(g.hardBounces)} hard`}
               testID="kpi-bounces"
             />
-            <View style={styles.kpiSpacer} />
           </View>
         </ScrollView>
       )}
@@ -264,11 +252,7 @@ export default function CampaignDetail() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard} testID="campaign-confirm-modal">
             <Text style={styles.modalTitle}>{action?.question}</Text>
-            <Text style={styles.modalBody}>
-              {action?.target === "suspended"
-                ? "The campaign will stop sending until you resume it."
-                : "The campaign will be re-queued and may resume sending."}
-            </Text>
+            <Text style={styles.modalBody}>{action?.body}</Text>
             <View style={styles.modalActions}>
               <Pressable
                 style={({ pressed }) => [styles.modalBtn, styles.modalCancel, { opacity: pressed ? 0.85 : 1 }]}
@@ -279,15 +263,21 @@ export default function CampaignDetail() {
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={({ pressed }) => [styles.modalBtn, styles.modalConfirm, { opacity: busy ? 0.6 : pressed ? 0.85 : 1 }]}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  isWarn ? styles.modalConfirmWarn : styles.modalConfirm,
+                  { opacity: busy ? 0.6 : pressed ? 0.85 : 1 },
+                ]}
                 onPress={applyStatus}
                 disabled={busy}
                 testID="campaign-confirm-confirm"
               >
                 {busy ? (
-                  <ActivityIndicator color={colors.onBrandPrimary} />
+                  <ActivityIndicator color={isWarn ? colors.onWarning : colors.onBrandPrimary} />
                 ) : (
-                  <Text style={styles.modalConfirmText}>{action?.confirm}</Text>
+                  <Text style={[styles.modalConfirmText, { color: isWarn ? colors.onWarning : colors.onBrandPrimary }]}>
+                    {action?.confirm}
+                  </Text>
                 )}
               </Pressable>
             </View>
@@ -298,40 +288,61 @@ export default function CampaignDetail() {
   );
 }
 
+function CompactStat({
+  icon,
+  label,
+  value,
+  sub,
+  testID,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  sub: string;
+  testID?: string;
+}) {
+  return (
+    <View style={styles.stat} testID={testID}>
+      <View style={styles.statHead}>
+        <IconChip icon={icon} size={28} />
+        <Text style={styles.statLabel} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+      <Text style={styles.statValue} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={styles.statSub} numberOfLines={1}>
+        {sub}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  menuBtn: { padding: spacing.xs },
-  menuBackdrop: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 150 },
-  menu: {
-    position: "absolute",
-    right: spacing.md,
-    zIndex: 200,
-    elevation: 200,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    paddingVertical: spacing.xs,
-    minWidth: 210,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  menuItemLabel: { fontSize: font.base, color: colors.onSurface, fontFamily: fonts.semibold },
   titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
   name: { flex: 1, fontSize: font.xxl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5 },
   subject: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.sm },
   metaRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
   meta: { fontSize: font.sm, color: colors.onSurfaceTertiary },
+
+  // Visible action button
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    alignSelf: "flex-start",
+    height: 40,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.pill,
+    marginTop: spacing.lg,
+  },
+  actionWarn: { backgroundColor: colors.warningBg },
+  actionPrimary: { backgroundColor: colors.brandPrimary },
+  actionText: { fontSize: font.base, fontFamily: fonts.bold },
+
   section: {
     fontSize: font.lg,
     fontFamily: fonts.bold,
@@ -339,8 +350,24 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     marginBottom: spacing.md,
   },
-  kpiRow: { flexDirection: "row", gap: spacing.md },
-  kpiSpacer: { flex: 1 },
+
+  // Compact 2-column stat grid
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
+  stat: {
+    width: "47.8%",
+    flexGrow: 1,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  statHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  statLabel: { flex: 1, fontSize: font.sm, color: colors.onSurfaceSecondary, fontFamily: fonts.semibold },
+  statValue: { fontSize: 22, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5, marginTop: spacing.sm },
+  statSub: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 1 },
+
   // Confirmation modal
   modalBackdrop: {
     flex: 1,
@@ -363,5 +390,6 @@ const styles = StyleSheet.create({
   modalCancel: { backgroundColor: colors.surfaceSecondary },
   modalCancelText: { fontSize: font.lg, fontFamily: fonts.semibold, color: colors.onSurface },
   modalConfirm: { backgroundColor: colors.brandPrimary },
-  modalConfirmText: { fontSize: font.lg, fontFamily: fonts.bold, color: colors.onBrandPrimary },
+  modalConfirmWarn: { backgroundColor: colors.warning },
+  modalConfirmText: { fontSize: font.lg, fontFamily: fonts.bold },
 });
