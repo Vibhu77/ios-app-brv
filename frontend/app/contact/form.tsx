@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { StyleSheet, Text, View, TextInput, Pressable, Switch } from "react-native";
+import { StyleSheet, Text, View, TextInput, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,9 +14,14 @@ import { useToast } from "@/src/context/ToastContext";
 import { brevo } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 
-type Attr = { name: string; category: string; type: string };
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// First-iteration curated field set (Brevo attribute name -> UI).
+const FIELDS = [
+  { key: "FIRSTNAME", label: "First name", keyboardType: "default" as const, autoCapitalize: "words" as const },
+  { key: "LASTNAME", label: "Last name", keyboardType: "default" as const, autoCapitalize: "words" as const },
+  { key: "SMS", label: "SMS (phone)", keyboardType: "phone-pad" as const, autoCapitalize: "none" as const },
+];
 
 export default function ContactForm() {
   const insets = useSafeAreaInsets();
@@ -26,29 +31,31 @@ export default function ContactForm() {
   const params = useLocalSearchParams<{ id?: string }>();
   const isEdit = !!params.id;
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
-  const [attributes, setAttributes] = useState<Attr[]>([]);
   const [email, setEmail] = useState("");
-  const [values, setValues] = useState<Record<string, any>>({});
+  const [values, setValues] = useState<Record<string, string>>({
+    FIRSTNAME: "",
+    LASTNAME: "",
+    SMS: "",
+  });
   const [emailError, setEmailError] = useState<string | null>(null);
 
+  // Pre-fill the curated fields with the contact's CURRENT attribute values.
   const load = useCallback(async () => {
+    if (!isEdit) return;
     setLoading(true);
     try {
-      const attrRes = await brevo.getAttributes(token);
-      const normal: Attr[] = (attrRes?.attributes || []).filter(
-        (a: Attr) => a.category === "normal" && ["text", "float", "date", "boolean"].includes(a.type)
-      );
-      setAttributes(normal);
-
-      if (isEdit) {
-        const c = await brevo.getContact(token, params.id!);
-        setEmail(c.email || "");
-        setValues(c.attributes || {});
-      }
+      const c = await brevo.getContact(token, params.id!);
+      const a = c?.attributes || {};
+      setEmail(c?.email || "");
+      setValues({
+        FIRSTNAME: a.FIRSTNAME != null ? String(a.FIRSTNAME) : "",
+        LASTNAME: a.LASTNAME != null ? String(a.LASTNAME) : "",
+        SMS: a.SMS != null ? String(a.SMS) : "",
+      });
     } catch (e: any) {
-      toast.show(e?.message || "Failed to load form", "error");
+      toast.show(e?.message || "Failed to load contact", "error");
     } finally {
       setLoading(false);
     }
@@ -58,7 +65,7 @@ export default function ContactForm() {
     load();
   }, [load]);
 
-  const setVal = (name: string, v: any) => setValues((prev) => ({ ...prev, [name]: v }));
+  const setVal = (key: string, v: string) => setValues((prev) => ({ ...prev, [key]: v }));
 
   const onSave = async () => {
     setEmailError(null);
@@ -73,26 +80,17 @@ export default function ContactForm() {
       }
     }
 
-    // Build attributes payload (only non-empty)
-    const payloadAttrs: Record<string, any> = {};
-    attributes.forEach((a) => {
-      const v = values[a.name];
-      if (v === undefined || v === null || v === "") return;
-      if (a.type === "float") {
-        const n = Number(v);
-        if (!isNaN(n)) payloadAttrs[a.name] = n;
-      } else if (a.type === "boolean") {
-        payloadAttrs[a.name] = !!v;
-      } else {
-        payloadAttrs[a.name] = String(v);
-      }
+    // Only send non-empty values so unchanged/blank fields never wipe data.
+    const payloadAttrs: Record<string, string> = {};
+    FIELDS.forEach((f) => {
+      const v = (values[f.key] || "").trim();
+      if (v !== "") payloadAttrs[f.key] = v;
     });
 
     setSaving(true);
     try {
       if (isEdit) {
         await brevo.updateContact(token, params.id!, { attributes: payloadAttrs });
-        // Invalidate caches so the detail + list show the change on refetch.
         cache.del(cacheKeys.contact(params.id!), cacheKeys.contacts);
         toast.show("Contact updated", "success");
       } else {
@@ -132,7 +130,7 @@ export default function ContactForm() {
             contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 120 }}
             showsVerticalScrollIndicator={false}
           >
-            {/* Email */}
+            {/* Email (read-only in edit) */}
             <Text style={styles.label}>Email {!isEdit ? <Text style={styles.req}>*</Text> : null}</Text>
             <TextInput
               testID="form-email-input"
@@ -149,32 +147,21 @@ export default function ContactForm() {
             {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
             {isEdit ? <Text style={styles.hint}>Email cannot be changed here.</Text> : null}
 
-            {/* Dynamic attributes */}
-            {attributes.map((a) => (
-              <View key={a.name}>
-                <Text style={styles.label}>{prettyLabel(a.name)}</Text>
-                {a.type === "boolean" ? (
-                  <View style={styles.switchRow}>
-                    <Text style={styles.switchText}>{values[a.name] ? "Yes" : "No"}</Text>
-                    <Switch
-                      testID={`form-attr-${a.name}`}
-                      value={!!values[a.name]}
-                      onValueChange={(v) => setVal(a.name, v)}
-                      trackColor={{ true: colors.brandPrimary, false: colors.surfaceTertiary }}
-                    />
-                  </View>
-                ) : (
-                  <TextInput
-                    testID={`form-attr-${a.name}`}
-                    style={styles.input}
-                    value={values[a.name] != null ? String(values[a.name]) : ""}
-                    onChangeText={(v) => setVal(a.name, v)}
-                    placeholder={a.type === "date" ? "YYYY-MM-DD" : `Enter ${prettyLabel(a.name).toLowerCase()}`}
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    keyboardType={a.type === "float" ? "numeric" : "default"}
-                    autoCapitalize={a.name === "SMS" ? "none" : "sentences"}
-                  />
-                )}
+            {/* Curated editable fields */}
+            {FIELDS.map((f) => (
+              <View key={f.key}>
+                <Text style={styles.label}>{f.label}</Text>
+                <TextInput
+                  testID={`form-attr-${f.key}`}
+                  style={styles.input}
+                  value={values[f.key]}
+                  onChangeText={(v) => setVal(f.key, v)}
+                  placeholder={`Enter ${f.label.toLowerCase()}`}
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  keyboardType={f.keyboardType}
+                  autoCapitalize={f.autoCapitalize}
+                  autoCorrect={false}
+                />
               </View>
             ))}
           </KeyboardAwareScrollView>
@@ -194,13 +181,6 @@ export default function ContactForm() {
       )}
     </View>
   );
-}
-
-function prettyLabel(name: string) {
-  return name
-    .replace(/_/g, " ")
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 const styles = StyleSheet.create({
@@ -231,18 +211,6 @@ const styles = StyleSheet.create({
   inputError: { borderColor: colors.error },
   errorText: { color: colors.error, fontSize: font.sm, marginTop: spacing.xs },
   hint: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.xs },
-  switchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    height: 52,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  switchText: { fontSize: font.lg, color: colors.onSurface },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
