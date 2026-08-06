@@ -190,17 +190,24 @@ export default function CampaignDetail() {
               style={({ pressed }) => [
                 styles.actionBtn,
                 isWarn ? styles.actionWarn : styles.actionPrimary,
-                { opacity: pressed ? 0.85 : 1 },
+                { opacity: busy ? 0.6 : pressed ? 0.85 : 1 },
               ]}
+              disabled={busy}
             >
-              <Ionicons
-                name={action.icon}
-                size={18}
-                color={isWarn ? colors.warningText : colors.onBrandPrimary}
-              />
-              <Text style={[styles.actionText, { color: isWarn ? colors.warningText : colors.onBrandPrimary }]}>
-                {action.confirm}
-              </Text>
+              {busy ? (
+                <ActivityIndicator color={isWarn ? colors.warningText : colors.onBrandPrimary} />
+              ) : (
+                <>
+                  <Ionicons
+                    name={action.icon}
+                    size={18}
+                    color={isWarn ? colors.warningText : colors.onBrandPrimary}
+                  />
+                  <Text style={[styles.actionText, { color: isWarn ? colors.warningText : colors.onBrandPrimary }]}>
+                    {action.confirm}
+                  </Text>
+                </>
+              )}
             </Pressable>
           ) : null}
 
@@ -241,6 +248,7 @@ export default function CampaignDetail() {
               value={nf((g.softBounces || 0) + (g.hardBounces || 0))}
               sub={`${nf(g.softBounces)} soft · ${nf(g.hardBounces)} hard`}
               testID="kpi-bounces"
+              full
             />
           </View>
         </ScrollView>
@@ -293,15 +301,17 @@ function CompactStat({
   value,
   sub,
   testID,
+  full,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
   sub: string;
   testID?: string;
+  full?: boolean;
 }) {
   return (
-    <View style={styles.stat} testID={testID}>
+    <View style={[styles.stat, full && styles.statFull]} testID={testID}>
       <View style={styles.statHead}>
         <IconChip icon={icon} size={28} />
         <Text style={styles.statLabel} numberOfLines={1}>
@@ -356,12 +366,18 @@ const styles = StyleSheet.create({
     width: "47.8%",
     flexGrow: 1,
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 1,
   },
+  statFull: { width: "100%" },
   statHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   statLabel: { flex: 1, fontSize: font.sm, color: colors.onSurfaceSecondary, fontFamily: fonts.semibold },
   statValue: { fontSize: 22, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5, marginTop: spacing.sm },
