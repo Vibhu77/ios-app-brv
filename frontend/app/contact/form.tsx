@@ -12,6 +12,7 @@ import { PrimaryButton, Loader } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo } from "@/src/lib/brevo";
+import { cache, cacheKeys } from "@/src/lib/cache";
 
 type Attr = { name: string; category: string; type: string };
 
@@ -35,7 +36,7 @@ export default function ContactForm() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const attrRes = await brevo.getAttributes(apiKey);
+      const attrRes = await brevo.getAttributes(token);
       const normal: Attr[] = (attrRes?.attributes || []).filter(
         (a: Attr) => a.category === "normal" && ["text", "float", "date", "boolean"].includes(a.type)
       );
@@ -91,6 +92,8 @@ export default function ContactForm() {
     try {
       if (isEdit) {
         await brevo.updateContact(token, params.id!, { attributes: payloadAttrs });
+        // Invalidate caches so the detail + list show the change on refetch.
+        cache.del(cacheKeys.contact(params.id!), cacheKeys.contacts);
         toast.show("Contact updated", "success");
       } else {
         await brevo.createContact(token, {
@@ -98,6 +101,7 @@ export default function ContactForm() {
           attributes: payloadAttrs,
           updateEnabled: true,
         });
+        cache.del(cacheKeys.contacts);
         toast.show("Contact created", "success");
       }
       router.back();

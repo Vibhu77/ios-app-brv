@@ -3,13 +3,15 @@ import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, ActivityI
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, shadow } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
 import { Avatar, StateView, Skeleton } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Contact } from "@/src/lib/brevo";
+import { cache, cacheKeys } from "@/src/lib/cache";
+import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 
 function contactName(c: Contact) {
   const a = c.attributes || {};
@@ -19,16 +21,19 @@ function contactName(c: Contact) {
 
 const PAGE_SIZE = 20;
 
+type ContactsCache = { list: Contact[]; total: number | null; hasMore: boolean };
+
 export default function ContactsScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
   const { token, isConnected } = useBrevo();
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [total, setTotal] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = cache.get<ContactsCache>(cacheKeys.contacts);
+  const [contacts, setContacts] = useState<Contact[]>(cached?.list || []);
+  const [total, setTotal] = useState<number | null>(cached?.total ?? null);
+  const [loading, setLoading] = useState(!cached);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(cached?.hasMore ?? true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -38,7 +43,8 @@ export default function ContactsScreen() {
     scrollY.value = e.contentOffset.y;
   });
 
-  // Fetch only the first page for a fast (~1s) initial render.
+  // Stale-while-revalidate: paint cached contacts instantly, refetch page 0 in
+  // the background. Only show the skeleton when there's nothing cached.
   const load = useCallback(async () => {
     if (!token) {
       setLoading(false);
@@ -48,11 +54,14 @@ export default function ContactsScreen() {
     try {
       const res = await brevo.listContacts(token, 0, PAGE_SIZE);
       const list = res?.contacts || [];
+      const nextTotal = res?.count ?? null;
+      const more = list.length >= PAGE_SIZE;
       setContacts(list);
-      setTotal(res?.count ?? null);
-      setHasMore(list.length >= PAGE_SIZE);
+      setTotal(nextTotal);
+      setHasMore(more);
+      cache.set<ContactsCache>(cacheKeys.contacts, { list, total: nextTotal, hasMore: more });
     } catch (e: any) {
-      setError(e?.message || "Failed to load contacts");
+      if (!cache.get<ContactsCache>(cacheKeys.contacts)) setError(e?.message || "Failed to load contacts");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -68,26 +77,24 @@ export default function ContactsScreen() {
     try {
       const res = await brevo.listContacts(token, contacts.length, PAGE_SIZE);
       const list = res?.contacts || [];
-      setContacts((prev) => {
-        const seen = new Set(prev.map((c) => c.id));
-        return [...prev, ...list.filter((c: Contact) => !seen.has(c.id))];
-      });
-      if (res?.count != null) setTotal(res.count);
-      setHasMore(list.length >= PAGE_SIZE);
+      const more = list.length >= PAGE_SIZE;
+      const nextTotal = res?.count ?? total;
+      const merged = (() => {
+        const seen = new Set(contacts.map((c) => c.id));
+        return [...contacts, ...list.filter((c: Contact) => !seen.has(c.id))];
+      })();
+      setContacts(merged);
+      setTotal(nextTotal);
+      setHasMore(more);
+      cache.set<ContactsCache>(cacheKeys.contacts, { list: merged, total: nextTotal, hasMore: more });
     } catch {
       setHasMore(false);
     } finally {
       setLoadingMore(false);
     }
-  }, [token, loadingMore, hasMore, query, contacts.length]);
+  }, [token, loadingMore, hasMore, query, contacts, total]);
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      setHasMore(true);
-      load();
-    }, [load])
-  );
+  useFocusRefetch(load);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

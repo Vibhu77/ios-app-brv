@@ -3,12 +3,14 @@ import { StyleSheet, Text, View, Pressable, RefreshControl } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
 import { KpiCard, StateView, Skeleton, Card, StatusBadge } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
+import { cache, cacheKeys } from "@/src/lib/cache";
+import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { nf, pctStr, pctVal, fmtDate } from "@/src/lib/format";
 
 export default function CampaignsScreen() {
@@ -16,8 +18,8 @@ export default function CampaignsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
   const { token, account } = useBrevo();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(() => cache.get<Campaign[]>(cacheKeys.campaigns) || []);
+  const [loading, setLoading] = useState(!cache.get<Campaign[]>(cacheKeys.campaigns));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,6 +28,8 @@ export default function CampaignsScreen() {
     scrollY.value = e.contentOffset.y;
   });
 
+  // Stale-while-revalidate: cached data paints instantly; we always refetch in
+  // the background and only show the full skeleton when there's nothing cached.
   const load = useCallback(async () => {
     if (!token) {
       setLoading(false);
@@ -34,21 +38,18 @@ export default function CampaignsScreen() {
     setError(null);
     try {
       const res = await brevo.listCampaigns(token);
-      setCampaigns(res?.campaigns || []);
+      const list = res?.campaigns || [];
+      setCampaigns(list);
+      cache.set(cacheKeys.campaigns, list);
     } catch (e: any) {
-      setError(e?.message || "Failed to load campaigns");
+      if (!cache.get<Campaign[]>(cacheKeys.campaigns)) setError(e?.message || "Failed to load campaigns");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [token]);
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      load();
-    }, [load])
-  );
+  useFocusRefetch(load);
 
   const subtitle = account?.companyName ? account.companyName : account?.email;
 

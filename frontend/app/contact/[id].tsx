@@ -1,13 +1,15 @@
 import React, { useCallback, useState } from "react";
 import { StyleSheet, Text, View, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
 import { Avatar, StateView, Loader, Card, PrimaryButton } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Contact } from "@/src/lib/brevo";
+import { cache, cacheKeys } from "@/src/lib/cache";
+import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { fmtDate, nf } from "@/src/lib/format";
 
 function contactName(c?: Contact | null) {
@@ -25,35 +27,33 @@ export default function ContactDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { token } = useBrevo();
-  const [contact, setContact] = useState<Contact | null>(null);
-  const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [contact, setContact] = useState<Contact | null>(() => cache.get<Contact>(cacheKeys.contact(id)) || null);
+  const [stats, setStats] = useState<any>(() => cache.get<any>(cacheKeys.contactStats(id)) ?? null);
+  const [loading, setLoading] = useState(!cache.get<Contact>(cacheKeys.contact(id)));
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!token) return;
     setError(null);
     try {
       const c = await brevo.getContact(token, id);
       setContact(c);
+      cache.set(cacheKeys.contact(id), c);
       try {
         const s = await brevo.getContactStats(token, id);
         setStats(s);
+        cache.set(cacheKeys.contactStats(id), s);
       } catch {
         setStats(null);
       }
     } catch (e: any) {
-      setError(e?.message || "Failed to load contact");
+      if (!cache.get<Contact>(cacheKeys.contact(id))) setError(e?.message || "Failed to load contact");
     } finally {
       setLoading(false);
     }
   }, [token, id]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useFocusRefetch(load);
 
   const name = contactName(contact);
   const attrs = contact?.attributes || {};

@@ -4,6 +4,7 @@ import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import { storage } from "@/src/utils/storage";
 import { brevo, LOGIN_URL, Account, setUnauthorizedHandler } from "@/src/lib/brevo";
+import { cache } from "@/src/lib/cache";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -53,6 +54,7 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
   const handleUnauthorized = useCallback(async () => {
     if (expiredRef.current) return;
     expiredRef.current = true;
+    cache.clear();
     await storage.secureRemove(KEY);
     setToken("");
     setAccount(null);
@@ -144,6 +146,7 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore
     }
+    cache.clear();
     await storage.secureRemove(KEY);
     setToken("");
     setAccount(null);

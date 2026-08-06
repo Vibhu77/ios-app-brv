@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { StyleSheet, Text, View, ScrollView, Pressable, Modal, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
@@ -9,6 +9,8 @@ import { StateView, Loader, StatusBadge, IconChip } from "@/src/components/commo
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
+import { cache, cacheKeys } from "@/src/lib/cache";
+import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { nf, pctStr, fmtDateTime } from "@/src/lib/format";
 
 // Normalize Brevo status: case-insensitive + underscore/camelCase tolerant.
@@ -59,31 +61,27 @@ export default function CampaignDetail() {
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { token } = useBrevo();
-  const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [campaign, setCampaign] = useState<Campaign | null>(() => cache.get<Campaign>(cacheKeys.campaign(id)) || null);
+  const [loading, setLoading] = useState(!cache.get<Campaign>(cacheKeys.campaign(id)));
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
-    setLoading(true);
     setError(null);
     try {
       const res = await brevo.getCampaign(token, id);
       setCampaign(res);
+      cache.set(cacheKeys.campaign(id), res);
     } catch (e: any) {
-      setError(e?.message || "Failed to load campaign");
+      if (!cache.get<Campaign>(cacheKeys.campaign(id))) setError(e?.message || "Failed to load campaign");
     } finally {
       setLoading(false);
     }
   }, [token, id]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useFocusRefetch(load);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -102,6 +100,7 @@ export default function CampaignDetail() {
     try {
       await brevo.updateCampaignStatus(token, id, action.target);
       setConfirmOpen(false);
+      cache.del(cacheKeys.campaigns);
       toast.show(
         action.target === "suspended" ? "Campaign suspended" : "Campaign resumed",
         "success"
