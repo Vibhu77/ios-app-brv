@@ -35,27 +35,53 @@ const chipStyles = StyleSheet.create({
   },
 });
 
-// ---------- Status badge ----------
+// ---------- Status badge (Naos Status: tinted pill + colored dot) ----------
+const normStatus = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function statusStyle(status?: string): { bg: string; fg: string; dot: string; label: string } {
+  switch (normStatus(status)) {
+    case "sent":
+      return { bg: colors.successBg, fg: colors.successText, dot: colors.success, label: "Sent" };
+    case "suspended":
+      return { bg: colors.errorBg, fg: colors.errorText, dot: colors.error, label: "Suspended" };
+    case "inprocess":
+    case "running":
+      return { bg: colors.warningBg, fg: colors.warningText, dot: colors.warning, label: "Running" };
+    case "queued":
+    case "scheduled":
+      return { bg: colors.infoBg, fg: colors.infoText, dot: colors.accent, label: "Scheduled" };
+    case "draft":
+      return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, dot: colors.onSurfaceSecondary, label: "Draft" };
+    default:
+      return {
+        bg: colors.surfaceSecondary,
+        fg: colors.onSurfaceSecondary,
+        dot: colors.onSurfaceSecondary,
+        label: titleCase(status || "draft"),
+      };
+  }
+}
+
 export function StatusBadge({ status }: { status?: string }) {
-  const map: Record<string, { bg: string; fg: string }> = {
-    sent: { bg: colors.successBg, fg: colors.successText },
-    queued: { bg: colors.infoBg, fg: colors.infoText },
-    scheduled: { bg: colors.infoBg, fg: colors.infoText },
-    inProcess: { bg: colors.infoBg, fg: colors.infoText },
-    draft: { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary },
-    archive: { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary },
-    suspended: { bg: colors.errorBg, fg: colors.errorText },
-  };
-  const s = map[status || "draft"] || map.draft;
+  const s = statusStyle(status);
   return (
     <View style={[badgeStyles.badge, { backgroundColor: s.bg }]}>
-      <Text style={[badgeStyles.badgeText, { color: s.fg }]}>{titleCase(status || "draft")}</Text>
+      <View style={[badgeStyles.dot, { backgroundColor: s.dot }]} />
+      <Text style={[badgeStyles.badgeText, { color: s.fg }]}>{s.label}</Text>
     </View>
   );
 }
 
 const badgeStyles = StyleSheet.create({
-  badge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.sm },
+  badge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+  },
+  dot: { width: 6, height: 6, borderRadius: 3 },
   badgeText: { fontSize: font.sm, fontWeight: "700" },
 });
 

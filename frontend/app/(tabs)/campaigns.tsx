@@ -17,7 +17,7 @@ export default function CampaignsScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
-  const { token, account } = useBrevo();
+  const { token } = useBrevo();
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => cache.get<Campaign[]>(cacheKeys.campaigns) || []);
   const [loading, setLoading] = useState(!cache.get<Campaign[]>(cacheKeys.campaigns));
   const [refreshing, setRefreshing] = useState(false);
@@ -51,8 +51,6 @@ export default function CampaignsScreen() {
 
   useFocusRefetch(load);
 
-  const subtitle = account?.companyName ? account.companyName : account?.email;
-
   const sentCampaigns = campaigns.filter((c) => (c.statistics?.globalStats?.sent || 0) > 0);
   const totalSent = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.sent || 0), 0);
   const totalDelivered = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.delivered || 0), 0);
@@ -61,7 +59,7 @@ export default function CampaignsScreen() {
 
   const listHeader = (
     <View>
-      <LargeTitle title="Campaigns" subtitle={subtitle} />
+      <LargeTitle title="Campaigns" />
       <View style={styles.kpiRow}>
         <KpiCard label="Total Sent" value={nf(totalSent)} testID="kpi-total-sent" />
         <KpiCard label="Campaigns" value={nf(campaigns.length)} testID="kpi-campaigns" />
@@ -109,7 +107,7 @@ export default function CampaignsScreen() {
     <View style={styles.container}>
       {loading ? (
         <View style={{ flex: 1, paddingTop: insets.top, paddingHorizontal: spacing.lg }}>
-          <LargeTitle title="Campaigns" subtitle={subtitle} />
+          <LargeTitle title="Campaigns" />
           <View style={styles.kpiRow}>
             <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
             <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
@@ -124,7 +122,7 @@ export default function CampaignsScreen() {
         </View>
       ) : error ? (
         <View style={{ flex: 1, paddingTop: insets.top, paddingHorizontal: spacing.lg }}>
-          <LargeTitle title="Campaigns" subtitle={subtitle} />
+          <LargeTitle title="Campaigns" />
           <StateView
             icon="cloud-offline-outline"
             title="Couldn't load campaigns"
@@ -192,7 +190,7 @@ const styles = StyleSheet.create({
     fontSize: font.lg,
     fontWeight: "700",
     color: colors.onSurface,
-    marginTop: spacing.lg,
+    marginTop: spacing.xl,
     marginBottom: spacing.sm,
   },
   campaignCard: { marginBottom: spacing.md },

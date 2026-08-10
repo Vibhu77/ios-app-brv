@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
-import { StateView, Loader, StatusBadge, IconChip } from "@/src/components/common";
+import { StateView, Loader, StatusBadge } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
@@ -122,8 +122,6 @@ export default function CampaignDetail() {
     }
   };
 
-  const isWarn = action?.tone === "warning";
-
   return (
     <View style={styles.container}>
       <GlassHeader title={campaign?.name || "Campaign"} onBack={goBack} />
@@ -189,23 +187,16 @@ export default function CampaignDetail() {
               onPress={() => setConfirmOpen(true)}
               style={({ pressed }) => [
                 styles.actionBtn,
-                isWarn ? styles.actionWarn : styles.actionPrimary,
                 { opacity: busy ? 0.6 : pressed ? 0.85 : 1 },
               ]}
               disabled={busy}
             >
               {busy ? (
-                <ActivityIndicator color={isWarn ? colors.warningText : colors.onBrandPrimary} />
+                <ActivityIndicator color={colors.onBrandPrimary} />
               ) : (
                 <>
-                  <Ionicons
-                    name={action.icon}
-                    size={18}
-                    color={isWarn ? colors.warningText : colors.onBrandPrimary}
-                  />
-                  <Text style={[styles.actionText, { color: isWarn ? colors.warningText : colors.onBrandPrimary }]}>
-                    {action.confirm}
-                  </Text>
+                  <Ionicons name={action.icon} size={18} color={colors.onBrandPrimary} />
+                  <Text style={styles.actionText}>{action.confirm}</Text>
                 </>
               )}
             </Pressable>
@@ -272,7 +263,7 @@ export default function CampaignDetail() {
               <Pressable
                 style={({ pressed }) => [
                   styles.modalBtn,
-                  isWarn ? styles.modalConfirmWarn : styles.modalConfirm,
+                  styles.modalConfirm,
                   { opacity: busy ? 0.6 : pressed ? 0.85 : 1 },
                 ]}
                 onPress={applyStatus}
@@ -280,9 +271,9 @@ export default function CampaignDetail() {
                 testID="campaign-confirm-confirm"
               >
                 {busy ? (
-                  <ActivityIndicator color={isWarn ? colors.onWarning : colors.onBrandPrimary} />
+                  <ActivityIndicator color={colors.onBrandPrimary} />
                 ) : (
-                  <Text style={[styles.modalConfirmText, { color: isWarn ? colors.onWarning : colors.onBrandPrimary }]}>
+                  <Text style={[styles.modalConfirmText, { color: colors.onBrandPrimary }]}>
                     {action?.confirm}
                   </Text>
                 )}
@@ -313,7 +304,7 @@ function CompactStat({
   return (
     <View style={[styles.stat, full && styles.statFull]} testID={testID}>
       <View style={styles.statHead}>
-        <IconChip icon={icon} size={28} />
+        <Ionicons name={icon} size={16} color={colors.onSurfaceSecondary} />
         <Text style={styles.statLabel} numberOfLines={1}>
           {label}
         </Text>
@@ -336,7 +327,7 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
   meta: { fontSize: font.sm, color: colors.onSurfaceTertiary },
 
-  // Visible action button
+  // Naos primary button — charcoal rounded rectangle (not a pill)
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -344,13 +335,13 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     alignSelf: "flex-start",
     height: 40,
+    minWidth: 120,
     paddingHorizontal: spacing.lg,
-    borderRadius: radius.pill,
+    borderRadius: radius.md,
     marginTop: spacing.lg,
+    backgroundColor: colors.brandPrimary,
   },
-  actionWarn: { backgroundColor: colors.warningBg },
-  actionPrimary: { backgroundColor: colors.brandPrimary },
-  actionText: { fontSize: font.base, fontFamily: fonts.bold },
+  actionText: { fontSize: font.base, fontFamily: fonts.semibold, color: colors.onBrandPrimary },
 
   section: {
     fontSize: font.lg,
@@ -405,6 +396,5 @@ const styles = StyleSheet.create({
   modalCancel: { backgroundColor: colors.surfaceSecondary },
   modalCancelText: { fontSize: font.lg, fontFamily: fonts.semibold, color: colors.onSurface },
   modalConfirm: { backgroundColor: colors.brandPrimary },
-  modalConfirmWarn: { backgroundColor: colors.warning },
   modalConfirmText: { fontSize: font.lg, fontFamily: fonts.bold },
 });
