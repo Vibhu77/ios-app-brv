@@ -1,11 +1,11 @@
 import React, { useCallback, useState } from "react";
-import { StyleSheet, Text, View, ScrollView, Pressable, Modal, ActivityIndicator } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
-import { StateView, Loader, StatusBadge } from "@/src/components/common";
+import { StateView, Loader, StatusBadge, Button } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
@@ -90,6 +90,7 @@ export default function CampaignDetail() {
 
   const g = campaign?.statistics?.globalStats || {};
   const action = actionFor(campaign?.status);
+  const destructive = action?.target === "suspended";
   const senderText = campaign?.sender
     ? [campaign.sender.name, campaign.sender.email].filter(Boolean).join(" · ")
     : null;
@@ -182,24 +183,16 @@ export default function CampaignDetail() {
 
           {/* Visible, labeled Suspend/Resume action (only for applicable states) */}
           {action ? (
-            <Pressable
-              testID="campaign-status-action"
-              onPress={() => setConfirmOpen(true)}
-              style={({ pressed }) => [
-                styles.actionBtn,
-                { opacity: busy ? 0.6 : pressed ? 0.85 : 1 },
-              ]}
-              disabled={busy}
-            >
-              {busy ? (
-                <ActivityIndicator color={colors.onBrandPrimary} />
-              ) : (
-                <>
-                  <Ionicons name={action.icon} size={18} color={colors.onBrandPrimary} />
-                  <Text style={styles.actionText}>{action.confirm}</Text>
-                </>
-              )}
-            </Pressable>
+            <View style={styles.actionWrap}>
+              <Button
+                testID="campaign-status-action"
+                variant={destructive ? "destructive" : "primary"}
+                title={action.confirm}
+                icon={action.icon}
+                onPress={() => setConfirmOpen(true)}
+                loading={busy}
+              />
+            </View>
           ) : null}
 
           {/* KPI tiles — compact */}
@@ -252,32 +245,26 @@ export default function CampaignDetail() {
             <Text style={styles.modalTitle}>{action?.question}</Text>
             <Text style={styles.modalBody}>{action?.body}</Text>
             <View style={styles.modalActions}>
-              <Pressable
-                style={({ pressed }) => [styles.modalBtn, styles.modalCancel, { opacity: pressed ? 0.85 : 1 }]}
-                onPress={() => setConfirmOpen(false)}
-                disabled={busy}
-                testID="campaign-confirm-cancel"
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.modalBtn,
-                  styles.modalConfirm,
-                  { opacity: busy ? 0.6 : pressed ? 0.85 : 1 },
-                ]}
-                onPress={applyStatus}
-                disabled={busy}
-                testID="campaign-confirm-confirm"
-              >
-                {busy ? (
-                  <ActivityIndicator color={colors.onBrandPrimary} />
-                ) : (
-                  <Text style={[styles.modalConfirmText, { color: colors.onBrandPrimary }]}>
-                    {action?.confirm}
-                  </Text>
-                )}
-              </Pressable>
+              <View style={styles.modalBtnWrap}>
+                <Button
+                  variant="secondary"
+                  title="Cancel"
+                  fullWidth
+                  onPress={() => setConfirmOpen(false)}
+                  disabled={busy}
+                  testID="campaign-confirm-cancel"
+                />
+              </View>
+              <View style={styles.modalBtnWrap}>
+                <Button
+                  variant={destructive ? "destructive" : "primary"}
+                  title={action?.confirm || "Confirm"}
+                  fullWidth
+                  loading={busy}
+                  onPress={applyStatus}
+                  testID="campaign-confirm-confirm"
+                />
+              </View>
             </View>
           </View>
         </View>
@@ -328,20 +315,7 @@ const styles = StyleSheet.create({
   meta: { fontSize: font.sm, color: colors.onSurfaceTertiary },
 
   // Naos primary button — charcoal rounded rectangle (not a pill)
-  actionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    alignSelf: "flex-start",
-    height: 40,
-    minWidth: 120,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.md,
-    marginTop: spacing.lg,
-    backgroundColor: colors.brandPrimary,
-  },
-  actionText: { fontSize: font.base, fontFamily: fonts.semibold, color: colors.onBrandPrimary },
+  actionWrap: { alignItems: "flex-start", marginTop: spacing.lg },
 
   section: {
     fontSize: font.lg,
@@ -392,9 +366,5 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: font.xl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.3 },
   modalBody: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.sm, lineHeight: 20 },
   modalActions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xl },
-  modalBtn: { flex: 1, height: 48, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
-  modalCancel: { backgroundColor: colors.surfaceSecondary },
-  modalCancelText: { fontSize: font.lg, fontFamily: fonts.semibold, color: colors.onSurface },
-  modalConfirm: { backgroundColor: colors.brandPrimary },
-  modalConfirmText: { fontSize: font.lg, fontFamily: fonts.bold },
+  modalBtnWrap: { flex: 1 },
 });

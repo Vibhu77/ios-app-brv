@@ -31,6 +31,7 @@ export const colors = {
   onSuccess: "#FFFFFF",
   error: "hsl(353, 100%, 61%)",
   onError: "#FFFFFF",
+  negativePress: "hsl(349, 78%, 41%)",
   warning: "hsl(15, 100%, 62%)",
   onWarning: "#FFFFFF",
 

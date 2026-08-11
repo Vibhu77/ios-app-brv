@@ -166,7 +166,77 @@ export function StatRow({
   );
 }
 
-// ---------- Primary / secondary buttons ----------
+// ---------- Naos NaosButton (single reusable button) ----------
+type ButtonVariant = "primary" | "destructive" | "secondary";
+
+const BUTTON_VARIANTS: Record<ButtonVariant, { bg: string; border: string; fg: string }> = {
+  primary: { bg: colors.brandPrimary, border: colors.brandPrimary, fg: "#FFFFFF" },
+  destructive: { bg: colors.negativePress, border: colors.negativePress, fg: "#FFFFFF" },
+  secondary: { bg: colors.surfaceSecondary, border: colors.border, fg: colors.onSurface },
+};
+
+export function Button({
+  title,
+  onPress,
+  loading,
+  disabled,
+  icon,
+  testID,
+  variant = "primary",
+  fullWidth,
+}: {
+  title: string;
+  onPress: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+  icon?: keyof typeof Ionicons.glyphMap;
+  testID?: string;
+  variant?: ButtonVariant;
+  fullWidth?: boolean;
+}) {
+  const isDisabled = disabled || loading;
+  const v = BUTTON_VARIANTS[variant];
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      disabled={isDisabled}
+      style={({ pressed }) => [
+        btnStyles.base,
+        { backgroundColor: v.bg, borderColor: v.border },
+        fullWidth && btnStyles.fullWidth,
+        { opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1 },
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator color={v.fg} />
+      ) : (
+        <>
+          {icon ? <Ionicons name={icon} size={18} color={v.fg} /> : null}
+          <Text style={[btnStyles.label, { color: v.fg }]}>{title}</Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+const btnStyles = StyleSheet.create({
+  base: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingVertical: 7,
+    paddingHorizontal: 15,
+    minHeight: 40,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  fullWidth: { alignSelf: "stretch" },
+  label: { fontSize: 14, fontFamily: fonts.semibold },
+});
+
+// Back-compat wrapper: full-width CTA delegating to the canonical Button.
 export function PrimaryButton({
   title,
   onPress,
@@ -184,31 +254,18 @@ export function PrimaryButton({
   testID?: string;
   variant?: "primary" | "secondary" | "danger";
 }) {
-  const isDisabled = disabled || loading;
-  const bg =
-    variant === "secondary" ? colors.surfaceSecondary : variant === "danger" ? colors.surface : colors.brandPrimary;
-  const fg =
-    variant === "secondary" ? colors.onSurface : variant === "danger" ? colors.error : colors.onBrandPrimary;
+  const mapped: ButtonVariant = variant === "danger" ? "destructive" : variant;
   return (
-    <Pressable
-      testID={testID}
+    <Button
+      title={title}
       onPress={onPress}
-      disabled={isDisabled}
-      style={({ pressed }) => [
-        styles.btn,
-        { backgroundColor: bg, opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1 },
-        variant === "danger" && { borderWidth: 1, borderColor: colors.border },
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator color={fg} />
-      ) : (
-        <>
-          {icon ? <Ionicons name={icon} size={18} color={fg} /> : null}
-          <Text style={[styles.btnText, { color: fg }]}>{title}</Text>
-        </>
-      )}
-    </Pressable>
+      loading={loading}
+      disabled={disabled}
+      icon={icon}
+      testID={testID}
+      variant={mapped}
+      fullWidth
+    />
   );
 }
 
