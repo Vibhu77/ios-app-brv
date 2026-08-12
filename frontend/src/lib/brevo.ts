@@ -102,8 +102,11 @@ export const brevo = {
     }),
   listContacts: (token: string, offset = 0, limit = 20) =>
     req(`/brevo/contacts?limit=${limit}&offset=${offset}`, token),
-  getContact: (token: string, id: number | string) =>
-    req(`/brevo/contacts/${encodeURIComponent(String(id))}`, token),
+  getContact: (token: string, id: number | string, identifierType?: string) =>
+    req(
+      `/brevo/contacts/${encodeURIComponent(String(id))}${identifierType ? `?identifierType=${identifierType}` : ""}`,
+      token
+    ),
   getContactStats: (token: string, id: number | string) =>
     req(`/brevo/contacts/${encodeURIComponent(String(id))}/stats`, token),
   getAttributes: (token: string) => req("/brevo/attributes", token),

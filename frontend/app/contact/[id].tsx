@@ -1,16 +1,40 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, radius, font } from "@/src/theme";
+import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
-import { Avatar, StateView, Loader, Card, PrimaryButton } from "@/src/components/common";
+import { Avatar, StateView, Loader, Card, Button } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
-import { brevo, Contact } from "@/src/lib/brevo";
+import { brevo, Contact, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
-import { fmtDate, nf } from "@/src/lib/format";
+import { fmtDate, nf, relTime } from "@/src/lib/format";
+
+type TimelineEvent = { type: string; label: string; color: string; campaignId?: number; eventTime: string };
+
+// Flatten campaignStats into a single chronological event list (desc).
+function flattenEvents(stats: any): TimelineEvent[] {
+  if (!stats) return [];
+  const out: TimelineEvent[] = [];
+  const push = (arr: any, type: string, label: string, color: string) =>
+    (Array.isArray(arr) ? arr : []).forEach((e: any) => {
+      if (e?.eventTime) out.push({ type, label, color, campaignId: e.campaignId, eventTime: e.eventTime });
+    });
+  push(stats.delivered ?? stats.messagesSent, "delivered", "Delivered", colors.success);
+  push(stats.opened, "opened", "Opened", colors.accent);
+  push(stats.clicked, "clicked", "Clicked", colors.accent);
+  push(stats.softBounces, "bounced", "Bounced", colors.error);
+  push(stats.hardBounces, "bounced", "Bounced", colors.error);
+  const uns = stats.unsubscriptions;
+  if (uns) {
+    push(uns.userUnsubscription, "unsubscribed", "Unsubscribed", colors.warning);
+    push(uns.adminUnsubscription, "unsubscribed", "Unsubscribed", colors.warning);
+  }
+  out.sort((a, b) => new Date(b.eventTime).getTime() - new Date(a.eventTime).getTime());
+  return out.slice(0, 40);
+}
 
 function contactName(c?: Contact | null) {
   if (!c) return "";
@@ -54,6 +78,42 @@ export default function ContactDetail() {
   }, [token, id]);
 
   useFocusRefetch(load);
+
+  const events = useMemo(() => flattenEvents(stats), [stats]);
+  const [names, setNames] = useState<Record<string, string>>({});
+
+  // Resolve campaignId -> name from cache, else fetch + cache.
+  useEffect(() => {
+    if (!events.length || !token) return;
+    const ids = [...new Set(events.map((e) => String(e.campaignId)).filter((x) => x && x !== "undefined"))];
+    const cachedList = cache.get<Campaign[]>(cacheKeys.campaigns) || [];
+    const resolved: Record<string, string> = {};
+    const toFetch: string[] = [];
+    ids.forEach((cid) => {
+      const inList = cachedList.find((c) => String(c.id) === cid);
+      const inCache = cache.get<Campaign>(cacheKeys.campaign(cid));
+      const n = inList?.name || inCache?.name;
+      if (n) resolved[cid] = n;
+      else toFetch.push(cid);
+    });
+    if (Object.keys(resolved).length) setNames((prev) => ({ ...resolved, ...prev }));
+    let cancelled = false;
+    toFetch.forEach(async (cid) => {
+      try {
+        const c = await brevo.getCampaign(token, cid);
+        if (cancelled) return;
+        cache.set(cacheKeys.campaign(cid), c);
+        setNames((prev) => ({ ...prev, [cid]: c.name }));
+      } catch {
+        /* leave as fallback label */
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [events, token]);
+
+  const campaignLabel = (cid?: number) => names[String(cid)] || (cid ? `Campaign #${cid}` : "Campaign");
 
   const name = contactName(contact);
   const attrs = contact?.attributes || {};
@@ -120,6 +180,31 @@ export default function ContactDetail() {
               <ActivityCard label="Clicked" value={nf(count(stats?.clicked))} />
             </View>
 
+            {/* Recent history timeline */}
+            <Text style={styles.section}>Recent history</Text>
+            {events.length === 0 ? (
+              <Text style={styles.emptyHistory}>No recent activity yet.</Text>
+            ) : (
+              <View style={styles.timeline}>
+                {events.map((e, i) => (
+                  <View key={`${e.type}-${i}`} style={styles.tlRow}>
+                    <View style={styles.tlGutter}>
+                      <View style={[styles.tlDot, { backgroundColor: e.color }]} />
+                      {i < events.length - 1 ? <View style={styles.tlLine} /> : null}
+                    </View>
+                    <View style={styles.tlBody}>
+                      <Text style={styles.tlLabel} numberOfLines={2}>
+                        <Text style={styles.tlEvent}>{e.label}</Text>
+                        {"  ·  "}
+                        {campaignLabel(e.campaignId)}
+                      </Text>
+                      <Text style={styles.tlDate}>{relTime(e.eventTime)}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {/* Contact info */}
             <Text style={styles.section}>Contact info</Text>
             <Card>
@@ -149,7 +234,9 @@ export default function ContactDetail() {
           </ScrollView>
 
           <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
-            <PrimaryButton
+            <Button
+              variant="primary"
+              fullWidth
               title="Edit Contact"
               icon="create-outline"
               onPress={() => router.push({ pathname: "/contact/form", params: { id: String(contact?.id) } })}
@@ -216,6 +303,16 @@ const styles = StyleSheet.create({
   },
   activityValue: { fontSize: font.xxl, fontWeight: "800", color: colors.onSurface },
   activityLabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
+  emptyHistory: { fontSize: font.base, color: colors.onSurfaceTertiary },
+  timeline: { marginTop: spacing.xs },
+  tlRow: { flexDirection: "row", gap: spacing.md },
+  tlGutter: { width: 12, alignItems: "center" },
+  tlDot: { width: 10, height: 10, borderRadius: 5, marginTop: 3 },
+  tlLine: { flex: 1, width: 2, backgroundColor: colors.border, marginTop: 2 },
+  tlBody: { flex: 1, paddingBottom: spacing.lg },
+  tlLabel: { fontSize: font.base, color: colors.onSurface, lineHeight: 20 },
+  tlEvent: { fontFamily: fonts.semibold, color: colors.onSurface },
+  tlDate: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
   infoRow: { flexDirection: "row", justifyContent: "space-between", gap: spacing.lg, paddingVertical: spacing.md },
   infoLabel: { fontSize: font.base, color: colors.onSurfaceSecondary, fontWeight: "600" },
   infoValue: { fontSize: font.base, color: colors.onSurface, fontWeight: "600", flexShrink: 1, textAlign: "right" },

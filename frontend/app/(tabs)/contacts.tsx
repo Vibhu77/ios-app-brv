@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -7,7 +7,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, shadow } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
-import { Avatar, StateView, Skeleton } from "@/src/components/common";
+import { Avatar, StateView, Skeleton, EmptyState } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Contact } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
@@ -96,13 +96,63 @@ export default function ContactsScreen() {
 
   useFocusRefetch(load);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter(
-      (c) => c.email?.toLowerCase().includes(q) || contactName(c).toLowerCase().includes(q)
-    );
-  }, [contacts, query]);
+  // --- Exact-identifier search (email or phone) across ALL contacts ---
+  // The public API has no fuzzy contact search, so we look up the exact
+  // identifier via GET /contacts/{identifier}. Debounced; fires only on a
+  // complete-looking email/phone (or on submit).
+  const [searchState, setSearchState] = useState<"idle" | "searching" | "found" | "notfound" | "error">("idle");
+  const [searchResult, setSearchResult] = useState<Contact | null>(null);
+
+  const looksComplete = (q: string) => {
+    if (q.includes("@")) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q);
+    const digits = q.replace(/[^\d]/g, "");
+    return digits.length >= 7; // full-ish phone number
+  };
+
+  const runSearch = useCallback(
+    async (raw: string) => {
+      const q = raw.trim();
+      if (!q) return;
+      setSearchState("searching");
+      setSearchResult(null);
+      try {
+        let contact: Contact;
+        if (q.includes("@")) {
+          contact = await brevo.getContact(token, q);
+        } else if (/^[+\d]/.test(q)) {
+          const phone = q.replace(/[\s-]/g, "");
+          contact = await brevo.getContact(token, phone, "phone_id");
+        } else {
+          contact = await brevo.getContact(token, q);
+        }
+        setSearchResult(contact);
+        setSearchState("found");
+      } catch (e: any) {
+        const status = e?.upstreamStatus || e?.status;
+        if (status === 404 || status === 400) setSearchState("notfound");
+        else setSearchState("error");
+      }
+    },
+    [token]
+  );
+
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setSearchState("idle");
+      setSearchResult(null);
+      return;
+    }
+    if (!looksComplete(q)) {
+      setSearchState("idle");
+      return;
+    }
+    const t = setTimeout(() => runSearch(q), 500);
+    return () => clearTimeout(t);
+  }, [query, runSearch]);
+
+  const searching = query.trim().length > 0;
+  const displayData: Contact[] = searching ? (searchResult ? [searchResult] : []) : contacts;
 
   const searchBox = (
     <View style={styles.searchBox}>
@@ -110,12 +160,14 @@ export default function ContactsScreen() {
       <TextInput
         testID="contacts-search-input"
         style={styles.searchInput}
-        placeholder="Search email or name"
+        placeholder="Search by full email or phone number"
         placeholderTextColor={colors.onSurfaceTertiary}
         value={query}
         onChangeText={setQuery}
+        onSubmitEditing={() => query.trim() && runSearch(query)}
         autoCapitalize="none"
         autoCorrect={false}
+        keyboardType="email-address"
         returnKeyType="search"
       />
       {query.length > 0 ? (
@@ -191,7 +243,7 @@ export default function ContactsScreen() {
       ) : (
         <Animated.FlatList
           testID="contacts-list"
-          data={filtered}
+          data={displayData}
           keyExtractor={(c: Contact) => String(c.id)}
           renderItem={renderItem}
           ListHeaderComponent={listHeader}
@@ -200,7 +252,7 @@ export default function ContactsScreen() {
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           ListFooterComponent={
-            loadingMore ? (
+            loadingMore && !searching ? (
               <View style={styles.footer}>
                 <ActivityIndicator color={colors.brandPrimary} />
               </View>
@@ -208,16 +260,37 @@ export default function ContactsScreen() {
           }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           ListEmptyComponent={
-            <View style={{ paddingTop: spacing.xl, paddingHorizontal: spacing.lg }}>
-              <StateView
-                icon="people-outline"
-                title={query ? "No matches" : "No contacts yet"}
-                message={query ? "Try a different search." : "Add your first contact to get started."}
-                actionLabel={query ? undefined : "Add Contact"}
-                onAction={query ? undefined : () => router.push("/contact/form")}
+            searching ? (
+              searchState === "searching" ? (
+                <View style={styles.footer}>
+                  <ActivityIndicator color={colors.brandPrimary} />
+                </View>
+              ) : searchState === "idle" ? (
+                <View style={styles.hintWrap}>
+                  <Text style={styles.hint}>Type a full email or phone number to find a contact.</Text>
+                </View>
+              ) : (
+                <EmptyState
+                  title="No results"
+                  description={
+                    searchState === "error"
+                      ? "Something went wrong. Try again, or search by full email or phone number."
+                      : "Try a different search — search by full email or phone number."
+                  }
+                  actionLabel="Clear"
+                  onAction={() => setQuery("")}
+                  testID="contacts-empty"
+                />
+              )
+            ) : (
+              <EmptyState
+                title="No contacts yet"
+                description="Add your first contact to get started."
+                actionLabel="Add Contact"
+                onAction={() => router.push("/contact/form")}
                 testID="contacts-empty"
               />
-            </View>
+            )
           }
           contentContainerStyle={{
             paddingTop: insets.top,
@@ -286,6 +359,8 @@ const styles = StyleSheet.create({
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 72 },
   skRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
   footer: { paddingVertical: spacing.lg, alignItems: "center" },
+  hintWrap: { paddingTop: spacing.xxl, paddingHorizontal: spacing.xl, alignItems: "center" },
+  hint: { fontSize: font.base, color: colors.onSurfaceTertiary, textAlign: "center" },
   fab: {
     position: "absolute",
     right: spacing.lg,

@@ -6,10 +6,56 @@ import {
   Pressable,
   ActivityIndicator,
   ViewStyle,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, shadow, fonts } from "@/src/theme";
 import { titleCase } from "@/src/lib/format";
+
+const EMPTY_ILLUSTRATION = require("@/assets/empty-state.png");
+
+// ---------- Naos Empty State (illustration + heading + description + action) ----------
+export function EmptyState({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  testID,
+}: {
+  title: string;
+  description?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  testID?: string;
+}) {
+  return (
+    <View style={emptyStyles.wrap} testID={testID}>
+      <Image source={EMPTY_ILLUSTRATION} style={emptyStyles.img} resizeMode="contain" />
+      <Text style={emptyStyles.title}>{title}</Text>
+      {description ? <Text style={emptyStyles.desc}>{description}</Text> : null}
+      {actionLabel && onAction ? (
+        <View style={emptyStyles.action}>
+          <Button variant="secondary" title={actionLabel} onPress={onAction} testID="empty-state-action" />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const emptyStyles = StyleSheet.create({
+  wrap: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl, paddingVertical: spacing.xxxl },
+  img: { width: 200, height: 120, marginBottom: spacing.lg },
+  title: { fontSize: font.lg, fontFamily: fonts.bold, color: colors.onSurface, textAlign: "center" },
+  desc: {
+    fontSize: font.base,
+    color: colors.onSurfaceSecondary,
+    textAlign: "center",
+    marginTop: spacing.sm,
+    lineHeight: 20,
+    maxWidth: 300,
+  },
+  action: { marginTop: spacing.lg },
+});
 
 // ---------- Signature mint-green icon chip ----------
 export function IconChip({

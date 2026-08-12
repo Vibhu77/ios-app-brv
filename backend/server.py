@@ -417,8 +417,16 @@ async def contact_stats(identifier: str, sess: dict = Depends(get_session)):
 
 
 @api_router.get("/brevo/contacts/{identifier}")
-async def get_contact(identifier: str, sess: dict = Depends(get_session)):
-    return await brevo_authed("GET", f"/contacts/{identifier}", sess)
+async def get_contact(
+    identifier: str,
+    sess: dict = Depends(get_session),
+    identifierType: Optional[str] = None,
+):
+    # URL-encode the identifier (emails/phones with "+" or "@") and forward the
+    # optional identifierType (e.g. "phone_id") so Brevo can look up by phone.
+    encoded = urllib.parse.quote(identifier, safe="")
+    params = {"identifierType": identifierType} if identifierType else None
+    return await brevo_authed("GET", f"/contacts/{encoded}", sess, params=params)
 
 
 @api_router.post("/brevo/contacts")
