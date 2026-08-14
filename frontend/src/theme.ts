@@ -3,56 +3,57 @@
 export const colors = {
   // Surfaces & text
   surface: "#FFFFFF",
-  background: "hsl(0, 0%, 98%)",
-  onSurface: "hsl(0, 0%, 11%)",
-  onSurfaceSecondary: "hsl(0, 0%, 41%)",
-  surfaceSecondary: "hsl(0, 0%, 96%)",
-  onSurfaceSecondaryText: "hsl(0, 0%, 41%)",
-  surfaceTertiary: "hsl(0, 0%, 93%)",
-  onSurfaceTertiary: "hsl(0, 0%, 55%)",
-  surfaceInverse: "hsl(0, 0%, 11%)",
+  background: "#FAFAFA",
+  onSurface: "#1B1B1B",
+  onSurfaceSecondary: "#696969",
+  surfaceSecondary: "#F0F0F0",
+  onSurfaceSecondaryText: "#696969",
+  surfaceTertiary: "#EDEDED",
+  onSurfaceTertiary: "#8A8A8A",
+  surfaceInverse: "#1B1B1B",
   onSurfaceInverse: "#FFFFFF",
 
   // Brand / primary (charcoal — Brevo's primary)
-  brand: "hsl(0, 0%, 11%)",
-  brandPrimary: "hsl(0, 0%, 11%)",
-  brandPrimaryPressed: "hsl(0, 0%, 28%)",
+  brand: "#1B1B1B",
+  brandPrimary: "#1B1B1B",
+  brandPrimaryPressed: "#2C2C2C",
   onBrandPrimary: "#FFFFFF",
-  brandSecondary: "hsl(0, 0%, 41%)",
-  brandTertiary: "hsl(0, 0%, 96%)",
-  onBrandTertiary: "hsl(0, 0%, 11%)",
+  brandSecondary: "#696969",
+  brandTertiary: "#F0F0F0",
+  onBrandTertiary: "#1B1B1B",
 
   // Accent / information (iris purple) — links, highlights, selected states
-  accent: "hsl(245, 67%, 61%)",
+  accent: "#6358DE",
   onAccent: "#FFFFFF",
 
   // Semantic
-  success: "hsl(162, 87%, 32%)",
+  success: "#0B9A6F",
   onSuccess: "#FFFFFF",
-  error: "hsl(353, 100%, 61%)",
+  error: "#FF3A51",
   onError: "#FFFFFF",
-  negativePress: "hsl(349, 78%, 41%)",
-  warning: "hsl(15, 100%, 62%)",
+  negativePress: "#CF1A3B",
+  warning: "#FF6E3D",
   onWarning: "#FFFFFF",
 
   // Soft backgrounds + on-text (badges, KPI accents, toasts, banners)
-  successBg: "hsl(164, 52%, 96%)",
-  successText: "hsl(158, 100%, 21%)",
-  errorBg: "hsl(354, 100%, 96%)",
-  errorText: "hsl(349, 78%, 46%)",
-  infoBg: "hsl(244, 70%, 96%)",
-  infoText: "hsl(245, 43%, 43%)",
-  warningBg: "hsl(16, 100%, 97%)",
-  warningText: "hsl(14, 61%, 46%)",
+  // *Ink/Text tones are darkened for AA contrast on their own tinted backgrounds.
+  successBg: "#EFFAF7",
+  successText: "#006A43",
+  errorBg: "#FFECEE",
+  errorText: "#CF1A3B",
+  infoBg: "#EFEEFC",
+  infoText: "#463E9B",
+  warningBg: "#FFF4F0",
+  warningText: "#A24428",
 
   // Lines
-  border: "hsl(0, 0%, 89%)",
-  borderStrong: "hsl(0, 0%, 80%)",
-  divider: "hsl(0, 0%, 89%)",
+  border: "#E3E3E3",
+  borderStrong: "#CFCFCF",
+  divider: "#E3E3E3",
 
   // Signature Naos mint-green icon chip
   mint: "hsl(103, 96%, 89%)",
-  onMint: "hsl(0, 0%, 11%)",
+  onMint: "#1B1B1B",
   mintEyebrow: "hsl(103, 64%, 83%)",
   // Login hero gradient (deep forest -> green)
   heroGradientFrom: "hsl(156, 100%, 13%)",
@@ -68,13 +69,7 @@ export const fonts = {
 };
 
 // Chart palette (use in order when trend charts are added)
-export const chartColors = [
-  "hsl(245, 67%, 61%)",
-  "hsl(180, 77%, 35%)",
-  "hsl(338, 81%, 59%)",
-  "hsl(209, 75%, 63%)",
-  "hsl(47, 98%, 44%)",
-];
+export const chartColors = ["#6358DE", "#149E9E", "#EB4280", "#5AA3E7", "#DEAE02"];
 
 export const spacing = {
   xs: 4,
