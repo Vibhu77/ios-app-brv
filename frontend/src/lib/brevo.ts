@@ -56,6 +56,7 @@ export type Account = {
   firstName?: string;
   lastName?: string;
   companyName?: string;
+  address?: string;
   plan?: { type?: string; creditsType?: string; credits?: number; startDate?: string; endDate?: string };
   planVerticals?: {
     email?: { credits?: number };

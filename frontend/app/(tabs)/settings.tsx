@@ -14,10 +14,11 @@ import { ConfirmDialog } from "@/src/components/ConfirmDialog";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo, Account } from "@/src/lib/brevo";
-import { cache } from "@/src/lib/cache";
+import { cache, cacheKeys } from "@/src/lib/cache";
 import { usePrefs } from "@/src/hooks/use-prefs";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { prefs } from "@/src/lib/prefs";
+import { openWeb } from "@/src/lib/open-web";
 import { diagnostics } from "@/src/lib/diagnostics";
 import { fmtDate, fmtDateTime, nf } from "@/src/lib/format";
 
@@ -55,6 +56,7 @@ export default function SettingsScreen() {
     try {
       const res = await brevo.getAccount(token);
       setAccount(res);
+      cache.set(cacheKeys.account, res);
     } catch (e: any) {
       setAccountError(e?.message || "Failed to load account");
     } finally {
@@ -208,7 +210,66 @@ export default function SettingsScreen() {
           </SettingsGroup>
         ) : null}
 
-        {/* ===== GROUP 2: BEHAVIOUR ===== */}
+        {/* ===== GROUP 2: PROFILE (read-only) ===== */}
+        <SettingsGroup title="Profile" testID="settings-profile">
+          <SettingsRow
+            label="Profile"
+            sublabel="Name, email, company, address"
+            chevron
+            onPress={() => router.push("/settings/profile")}
+            accessibilityLabel="View profile"
+            isLast
+            testID="profile-row"
+          />
+        </SettingsGroup>
+
+        {/* ===== GROUP 3: MANAGE ON THE WEB ===== */}
+        <SettingsGroup title="Manage on the web" testID="settings-web">
+          <SettingsRow
+            label="Account settings"
+            externalLink
+            onPress={() => openWeb("https://app.brevo.com/settings/advanced")}
+            accessibilityLabel="Open account settings on Brevo web"
+          />
+          <SettingsRow
+            label="Language & timezone"
+            externalLink
+            onPress={() => openWeb("https://app.brevo.com/settings/localization")}
+            accessibilityLabel="Open language and timezone on Brevo web"
+          />
+          <SettingsRow
+            label="Contact attributes"
+            externalLink
+            onPress={() => openWeb("https://app.brevo.com/contact/settings")}
+            accessibilityLabel="Open contact attributes on Brevo web"
+            isLast
+          />
+        </SettingsGroup>
+
+        {/* ===== GROUP 4: DISPLAY (local, independent of Brevo) ===== */}
+        <SettingsGroup title="Display" testID="settings-display">
+          <SettingsRow
+            label="Time format"
+            segment={{
+              options: ["12h", "24h"],
+              selected: myPrefs.timeFormat,
+              onSelect: (v) => prefs.set("timeFormat", v),
+              testIDPrefix: "time-format",
+            }}
+          />
+          <SettingsRow
+            label="Date format"
+            segment={{
+              options: ["DD-MM-YYYY", "MM-DD-YYYY"],
+              selected: myPrefs.dateFormat,
+              onSelect: (v) => prefs.set("dateFormat", v),
+              testIDPrefix: "date-format",
+            }}
+            isLast
+          />
+        </SettingsGroup>
+
+        {/* ===== GROUP 5: BEHAVIOUR ===== */}
         <SettingsGroup title="Behaviour" testID="settings-behaviour">
           <SettingsRow
             label="Refresh on app focus"
@@ -218,29 +279,12 @@ export default function SettingsScreen() {
           />
           <SettingsRow
             label="Items per page"
-            right={
-              <View style={styles.segment}>
-                {[25, 50].map((n) => {
-                  const active = myPrefs.pageSize === n;
-                  return (
-                    <View
-                      key={n}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                      accessibilityLabel={`${n} items per page`}
-                    >
-                      <Text
-                        onPress={() => prefs.set("pageSize", n as 25 | 50)}
-                        style={[styles.segmentItem, active && styles.segmentItemActive]}
-                        testID={`page-size-${n}`}
-                      >
-                        {n}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            }
+            segment={{
+              options: [25, 50],
+              selected: myPrefs.pageSize,
+              onSelect: (v) => prefs.set("pageSize", v),
+              testIDPrefix: "page-size",
+            }}
           />
           <SettingsRow
             label="Cached data"
@@ -257,7 +301,7 @@ export default function SettingsScreen() {
           />
         </SettingsGroup>
 
-        {/* ===== GROUP 3: SECURITY ===== */}
+        {/* ===== GROUP 6: SECURITY ===== */}
         <SettingsGroup title="Security" testID="settings-security">
           <SettingsRow
             label="Permissions granted"
@@ -270,7 +314,7 @@ export default function SettingsScreen() {
         </SettingsGroup>
         <Text style={styles.footnote}>No API key is stored on this device.</Text>
 
-        {/* ===== GROUP 4: ABOUT & SUPPORT ===== */}
+        {/* ===== GROUP 7: ABOUT & SUPPORT ===== */}
         <SettingsGroup title="About & Support" testID="settings-about">
           <SettingsRow label="Version" value={`${version} (build ${build})`} />
           <SettingsRow
@@ -290,7 +334,7 @@ export default function SettingsScreen() {
           />
         </SettingsGroup>
 
-        {/* ===== GROUP 5: SIGN OUT ===== */}
+        {/* ===== GROUP 8: SIGN OUT ===== */}
         <SettingsGroup testID="settings-signout">
           <SettingsRow
             label="Sign out"
@@ -351,22 +395,6 @@ const styles = StyleSheet.create({
   creditValue: { fontSize: font.display, fontWeight: "800", color: colors.onSurface, letterSpacing: -0.6, fontVariant: ["tabular-nums"] },
   creditLabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
   creditDivider: { width: StyleSheet.hairlineWidth, height: 40, backgroundColor: colors.border },
-  segment: {
-    flexDirection: "row",
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
-    padding: 2,
-  },
-  segmentItem: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
-    fontSize: font.sm,
-    fontWeight: "700",
-    color: colors.onSurfaceSecondary,
-    borderRadius: radius.sm,
-    overflow: "hidden",
-  },
-  segmentItemActive: { backgroundColor: colors.surface, color: colors.onSurface },
   rowEnd: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   value: { fontSize: font.base, color: colors.onSurfaceSecondary, fontVariant: ["tabular-nums"] },
   clearLink: { fontSize: font.base, fontWeight: "700", color: colors.brandPrimary },

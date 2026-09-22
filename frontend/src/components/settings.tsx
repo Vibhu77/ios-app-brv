@@ -62,6 +62,8 @@ export function SettingsRow({
   onSwitchChange,
   switchAccessibilityLabel,
   chevron,
+  externalLink,
+  segment,
   onPress,
   destructive,
   left,
@@ -77,6 +79,8 @@ export function SettingsRow({
   onSwitchChange?: (v: boolean) => void;
   switchAccessibilityLabel?: string;
   chevron?: boolean;
+  externalLink?: boolean;
+  segment?: { options: (string | number)[]; selected: string | number; onSelect: (v: any) => void; testIDPrefix?: string };
   onPress?: () => void;
   destructive?: boolean;
   left?: React.ReactNode;
@@ -85,7 +89,7 @@ export function SettingsRow({
   testID?: string;
   accessibilityLabel?: string;
 }) {
-  const interactive = !!onPress || switchValue !== undefined;
+  const interactive = !!onPress || switchValue !== undefined || !!segment;
 
   const content = (
     <>
@@ -107,6 +111,25 @@ export function SettingsRow({
           accessibilityState={{ checked: switchValue }}
           testID={testID ? `${testID}-switch` : undefined}
         />
+      ) : segment ? (
+        <View style={rowStyles.segment} testID={segment.testIDPrefix ? `${segment.testIDPrefix}-segment` : undefined}>
+          {segment.options.map((opt) => {
+            const active = segment.selected === opt;
+            return (
+              <Pressable
+                key={String(opt)}
+                onPress={() => segment.onSelect(opt)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`${label}: ${opt}`}
+                style={[rowStyles.segmentItem, active && rowStyles.segmentItemActive]}
+                testID={segment.testIDPrefix ? `${segment.testIDPrefix}-${opt}` : undefined}
+              >
+                <Text style={[rowStyles.segmentText, active && rowStyles.segmentTextActive]}>{opt}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       ) : value !== undefined ? (
         <Text style={rowStyles.value} numberOfLines={1}>
           {value}
@@ -114,6 +137,9 @@ export function SettingsRow({
       ) : null}
       {chevron ? (
         <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+      ) : null}
+      {externalLink ? (
+        <Ionicons name="open-outline" size={18} color={colors.onSurfaceTertiary} />
       ) : null}
     </>
   );
@@ -124,7 +150,7 @@ export function SettingsRow({
     return (
       <Pressable
         onPress={onPress}
-        accessibilityRole="button"
+        accessibilityRole={externalLink ? "link" : "button"}
         accessibilityLabel={accessibilityLabel || label}
         testID={testID}
         style={({ pressed }) => [...base, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface }]}
@@ -162,4 +188,21 @@ const rowStyles = StyleSheet.create({
   destructiveLabel: { color: colors.errorText },
   sublabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 1 },
   value: { fontSize: font.base, color: colors.onSurfaceSecondary, fontVariant: ["tabular-nums"] },
+  segment: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    padding: 2,
+  },
+  segmentItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    minWidth: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentItemActive: { backgroundColor: colors.surface },
+  segmentText: { fontSize: font.sm, fontWeight: "700", color: colors.onSurfaceSecondary },
+  segmentTextActive: { color: colors.onSurface },
 });

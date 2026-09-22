@@ -36,6 +36,7 @@ export const cache = {
 export const cacheKeys = {
   campaigns: "campaigns",
   contacts: "contacts",
+  account: "account",
   campaign: (id: string | number) => `campaign:${id}`,
   contact: (id: string | number) => `contact:${id}`,
   contactStats: (id: string | number) => `contactStats:${id}`,
