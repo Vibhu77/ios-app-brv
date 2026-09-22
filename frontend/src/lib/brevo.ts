@@ -1,5 +1,7 @@
 // Client for our FastAPI backend. Auth is via a session token issued after Brevo OAuth.
 // The session token is sent as `Authorization: Bearer <token>` on every request.
+import { diagnostics } from "@/src/lib/diagnostics";
+
 const API = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
 
 // A single global handler invoked when the backend surfaces a 401 (i.e. the
@@ -35,13 +37,17 @@ async function req(path: string, token: string, opts: RequestInit = {}) {
     if (typeof msg !== "string") msg = "Request failed";
     const upstream = detail && typeof detail === "object" ? detail.upstream_status : undefined;
     if (upstream && upstream !== res.status) msg = `${msg} (Brevo HTTP ${upstream})`;
+    const requestId = detail && typeof detail === "object" ? detail.sib_request_id ?? null : null;
+    diagnostics.recordError({ status: res.status, message: msg, requestId, at: Date.now() });
     const err: any = new Error(msg);
     err.status = res.status;
     err.upstreamStatus = upstream;
     err.brevoCode = detail && typeof detail === "object" ? detail.brevo_code : undefined;
+    err.requestId = requestId;
     err.upstreamBody = detail && typeof detail === "object" ? detail.upstream_body : undefined;
     throw err;
   }
+  diagnostics.recordSuccess();
   return data;
 }
 
@@ -50,6 +56,13 @@ export type Account = {
   firstName?: string;
   lastName?: string;
   companyName?: string;
+  plan?: { type?: string; creditsType?: string; credits?: number; startDate?: string; endDate?: string };
+  planVerticals?: {
+    email?: { credits?: number };
+    sms?: { credits?: number };
+    [k: string]: any;
+  };
+  [k: string]: any;
 };
 
 export type GlobalStats = {
@@ -91,9 +104,11 @@ export type Contact = {
 export const brevo = {
   // auth
   me: (token: string) => req("/auth/me", token),
+  getAccount: (token: string) => req("/brevo/account", token),
   logout: (token: string) => req("/auth/logout", token, { method: "POST" }),
   // data (backend paginates internally at 50/page to dodge Brevo's limit=100 bug)
-  listCampaigns: (token: string) => req("/brevo/campaigns", token),
+  listCampaigns: (token: string, pageSize?: number) =>
+    req(`/brevo/campaigns${pageSize ? `?page_size=${pageSize}` : ""}`, token),
   getCampaign: (token: string, id: number | string) => req(`/brevo/campaigns/${id}`, token),
   updateCampaignStatus: (token: string, id: number | string, status: string) =>
     req(`/brevo/campaigns/${id}/status`, token, {

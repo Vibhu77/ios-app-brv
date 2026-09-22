@@ -13,6 +13,21 @@ export const cache = {
   del(...keys: string[]): void {
     keys.forEach((k) => store.delete(k));
   },
+  // Rough byte size of cached values (for the Settings "Cached data" row).
+  sizeBytes(): number {
+    let n = 0;
+    store.forEach((v) => {
+      try {
+        n += JSON.stringify(v)?.length || 0;
+      } catch {
+        /* ignore non-serializable */
+      }
+    });
+    return n;
+  },
+  count(): number {
+    return store.size;
+  },
   clear(): void {
     store.clear();
   },

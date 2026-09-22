@@ -73,6 +73,7 @@ async def brevo(method: str, path: str, access_token: str, params: dict | None =
                 "message": message,
                 "upstream_status": resp.status_code,
                 "brevo_code": brevo_code,
+                "sib_request_id": resp.headers.get("sib-request-id"),
                 "upstream_body": body if body is not None else raw_text[:2000],
             },
         )
@@ -359,9 +360,10 @@ async def auth_logout(authorization: Optional[str] = Header(None)):
 
 # ---------------- Brevo data endpoints (session-protected) ----------------
 @api_router.get("/brevo/campaigns")
-async def list_campaigns(sess: dict = Depends(get_session)):
+async def list_campaigns(sess: dict = Depends(get_session), page_size: int = 50):
     return await brevo_paginated(
         "/emailCampaigns", sess, "campaigns",
+        page_size=max(1, min(page_size, 50)),
         extra_params={"statistics": "globalStats", "sort": "desc", "excludeHtmlContent": "true"},
     )
 
@@ -392,9 +394,9 @@ async def list_contacts(
     # drives pagination (offset += limit) and stops when a page returns fewer
     # than `limit` items. Keeps per-page 5xx resilience: a failing page yields
     # an empty page instead of blanking the screen.
-    # NOTE: Brevo's /v3/contacts 500s at limit=50 for some accounts but returns
-    # 200 at limit <= 20, so we cap the page size at 20.
-    limit = max(1, min(limit, 20))
+    # NOTE: Brevo's /v3/contacts 500s at high limits for some accounts; we cap
+    # at the user-selectable page size, max 50 (the confirmed 500 is at ~100).
+    limit = max(1, min(limit, 50))
     params = {"limit": limit, "offset": max(0, offset), "sort": "desc"}
     try:
         data = await brevo_authed("GET", "/contacts", sess, params=params)
@@ -410,6 +412,12 @@ async def list_contacts(
 async def get_attributes(sess: dict = Depends(get_session)):
     return await brevo_authed("GET", "/contacts/attributes", sess)
 
+
+# Full account fetch (GET /v3/account) for the Settings screen + pull-to-refresh.
+# Returns the raw upstream payload (includes plan + planVerticals).
+@api_router.get("/brevo/account")
+async def get_brevo_account(sess: dict = Depends(get_session)):
+    return await brevo_authed("GET", "/account", sess)
 
 @api_router.get("/brevo/contacts/{identifier}/stats")
 async def contact_stats(identifier: str, sess: dict = Depends(get_session)):

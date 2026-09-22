@@ -12,14 +12,13 @@ import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Contact } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
+import { usePrefs } from "@/src/hooks/use-prefs";
 
 function contactName(c: Contact) {
   const a = c.attributes || {};
   const full = [a.FIRSTNAME, a.LASTNAME].filter(Boolean).join(" ").trim();
   return full || a.NAME || "";
 }
-
-const PAGE_SIZE = 20;
 
 type ContactsCache = { list: Contact[]; total: number | null; hasMore: boolean };
 
@@ -28,6 +27,7 @@ export default function ContactsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
   const { token, isConnected } = useBrevo();
+  const { pageSize } = usePrefs();
   const cached = cache.get<ContactsCache>(cacheKeys.contacts);
   const [contacts, setContacts] = useState<Contact[]>(cached?.list || []);
   const [total, setTotal] = useState<number | null>(cached?.total ?? null);
@@ -52,10 +52,10 @@ export default function ContactsScreen() {
     }
     setError(null);
     try {
-      const res = await brevo.listContacts(token, 0, PAGE_SIZE);
+      const res = await brevo.listContacts(token, 0, pageSize);
       const list = res?.contacts || [];
       const nextTotal = res?.count ?? null;
-      const more = list.length >= PAGE_SIZE;
+      const more = list.length >= pageSize;
       setContacts(list);
       setTotal(nextTotal);
       setHasMore(more);
@@ -66,7 +66,7 @@ export default function ContactsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, pageSize]);
 
   // Append the next page as the user nears the bottom. Stops at end-of-data
   // (a page shorter than PAGE_SIZE). Disabled while searching to keep the
@@ -75,9 +75,9 @@ export default function ContactsScreen() {
     if (!token || loadingMore || !hasMore || query.trim()) return;
     setLoadingMore(true);
     try {
-      const res = await brevo.listContacts(token, contacts.length, PAGE_SIZE);
+      const res = await brevo.listContacts(token, contacts.length, pageSize);
       const list = res?.contacts || [];
-      const more = list.length >= PAGE_SIZE;
+      const more = list.length >= pageSize;
       const nextTotal = res?.count ?? total;
       const merged = (() => {
         const seen = new Set(contacts.map((c) => c.id));
@@ -92,7 +92,7 @@ export default function ContactsScreen() {
     } finally {
       setLoadingMore(false);
     }
-  }, [token, loadingMore, hasMore, query, contacts, total]);
+  }, [token, loadingMore, hasMore, query, contacts, total, pageSize]);
 
   useFocusRefetch(load);
 

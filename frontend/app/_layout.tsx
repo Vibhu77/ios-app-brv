@@ -11,6 +11,7 @@ import { StatusBar } from "expo-status-bar";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { BrevoProvider } from "@/src/context/BrevoContext";
 import { ToastProvider } from "@/src/context/ToastContext";
+import { prefs } from "@/src/lib/prefs";
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
@@ -36,6 +37,8 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (loaded || error) {
+      // Hydrate persisted user preferences before first render of data screens.
+      prefs.load();
       // Make Inter the app-wide default font for all Text / TextInput.
       const withInter = { style: { fontFamily: "Inter_400Regular" } };
       // @ts-expect-error defaultProps is still supported for RN Text/TextInput

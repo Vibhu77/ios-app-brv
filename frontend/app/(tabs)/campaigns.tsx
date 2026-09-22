@@ -11,6 +11,7 @@ import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
+import { usePrefs } from "@/src/hooks/use-prefs";
 import { nf, pctStr, pctVal, fmtDate } from "@/src/lib/format";
 
 export default function CampaignsScreen() {
@@ -18,6 +19,7 @@ export default function CampaignsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const router = useRouter();
   const { token } = useBrevo();
+  const { pageSize } = usePrefs();
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => cache.get<Campaign[]>(cacheKeys.campaigns) || []);
   const [loading, setLoading] = useState(!cache.get<Campaign[]>(cacheKeys.campaigns));
   const [refreshing, setRefreshing] = useState(false);
@@ -37,7 +39,7 @@ export default function CampaignsScreen() {
     }
     setError(null);
     try {
-      const res = await brevo.listCampaigns(token);
+      const res = await brevo.listCampaigns(token, pageSize);
       const list = res?.campaigns || [];
       setCampaigns(list);
       cache.set(cacheKeys.campaigns, list);
@@ -47,7 +49,7 @@ export default function CampaignsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, pageSize]);
 
   useFocusRefetch(load);
 
