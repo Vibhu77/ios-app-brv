@@ -429,16 +429,80 @@ async def get_contact(
     return await brevo_authed("GET", f"/contacts/{encoded}", sess, params=params)
 
 
+# Contact payload handling (create/update). ext_id is a TOP-LEVEL sibling of
+# attributes — never put it inside attributes (Brevo would make it a custom
+# attribute instead of the external ID).
+ALLOWED_ATTRIBUTES = {"FIRSTNAME", "LASTNAME", "SMS", "WHATSAPP", "LANDLINE_NUMBER"}
+
+
+def _clean_phone(v: str) -> str:
+    # SMS / LANDLINE_NUMBER: trim, keep a single leading "+" if present.
+    return v.strip()
+
+
+def _build_contact_payload(raw: dict, is_create: bool):
+    errors: list = []
+    attrs_in = raw.get("attributes") or {}
+    attrs: dict = {}
+    for k in ("FIRSTNAME", "LASTNAME"):
+        v = attrs_in.get(k)
+        if isinstance(v, str) and v.strip():
+            attrs[k] = v.strip()
+    for k in ("SMS", "LANDLINE_NUMBER"):
+        v = attrs_in.get(k)
+        if isinstance(v, str) and v.strip():
+            cleaned = _clean_phone(v)
+            digits = cleaned.lstrip("+")
+            if not cleaned.startswith("+") and len(digits) < 11:
+                errors.append({"field": k, "message": f"{k} needs a country code (e.g. +91…)."})
+            else:
+                attrs[k] = cleaned
+    wa = attrs_in.get("WHATSAPP")
+    if isinstance(wa, str) and wa.strip():
+        digits = "".join(ch for ch in wa if ch.isdigit())
+        if not digits or (not wa.strip().startswith("+") and len(digits) < 11):
+            errors.append({"field": "WHATSAPP", "message": "WHATSAPP needs a country code (digits only, e.g. 4915778559164)."})
+        else:
+            attrs["WHATSAPP"] = digits
+
+    payload: dict = {}
+    email = raw.get("email")
+    if isinstance(email, str) and email.strip():
+        payload["email"] = email.strip()
+    ext = raw.get("ext_id")
+    if isinstance(ext, str) and ext.strip():
+        payload["ext_id"] = ext.strip()  # top-level sibling of attributes
+    if attrs:
+        payload["attributes"] = attrs
+
+    if is_create:
+        # At least one identifier: email, SMS, or ext_id. Names alone cannot
+        # create a contact; WhatsApp/Landline don't qualify (pending decision).
+        if not (payload.get("email") or attrs.get("SMS") or payload.get("ext_id")):
+            raise HTTPException(
+                status_code=400,
+                detail={"message": "Add an email, SMS number or external ID to create this contact."},
+            )
+    return payload, errors
+
+
 @api_router.post("/brevo/contacts")
 async def create_contact(request: Request, sess: dict = Depends(get_session)):
     body = await request.json()
-    return await brevo_authed("POST", "/contacts", sess, json_body=body)
+    payload, errors = _build_contact_payload(body, is_create=True)
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": errors[0]["message"], "field": errors[0]["field"]})
+    return await brevo_authed("POST", "/contacts", sess, json_body=payload)
 
 
 @api_router.put("/brevo/contacts/{identifier}")
 async def update_contact(identifier: str, request: Request, sess: dict = Depends(get_session)):
     body = await request.json()
-    return await brevo_authed("PUT", f"/contacts/{identifier}", sess, json_body=body)
+    payload, errors = _build_contact_payload(body, is_create=False)
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": errors[0]["message"], "field": errors[0]["field"]})
+    encoded = urllib.parse.quote(identifier, safe="")
+    return await brevo_authed("PUT", f"/contacts/{encoded}", sess, json_body=payload)
 
 
 app.include_router(api_router)

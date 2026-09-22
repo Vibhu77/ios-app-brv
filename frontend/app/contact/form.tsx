@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { StyleSheet, Text, View, TextInput, Pressable } from "react-native";
+import { StyleSheet, Text, View, TextInput, Pressable, Keyboard } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,7 +8,7 @@ import {
   KeyboardStickyView,
 } from "react-native-keyboard-controller";
 import { colors, spacing, radius, font } from "@/src/theme";
-import { PrimaryButton, Loader } from "@/src/components/common";
+import { Button, Loader } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo } from "@/src/lib/brevo";
@@ -16,12 +16,15 @@ import { cache, cacheKeys } from "@/src/lib/cache";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// First-iteration curated field set (Brevo attribute name -> UI).
+// Curated field set (Brevo attribute name -> UI). ext_id is TOP-LEVEL.
 const FIELDS = [
   { key: "FIRSTNAME", label: "First name", keyboardType: "default" as const, autoCapitalize: "words" as const },
   { key: "LASTNAME", label: "Last name", keyboardType: "default" as const, autoCapitalize: "words" as const },
   { key: "SMS", label: "SMS (phone)", keyboardType: "phone-pad" as const, autoCapitalize: "none" as const },
+  { key: "WHATSAPP", label: "WhatsApp", keyboardType: "phone-pad" as const, autoCapitalize: "none" as const },
+  { key: "LANDLINE_NUMBER", label: "Landline", keyboardType: "phone-pad" as const, autoCapitalize: "none" as const },
 ];
+type FieldErrors = Partial<Record<string, string>>;
 
 export default function ContactForm() {
   const insets = useSafeAreaInsets();
@@ -34,26 +37,44 @@ export default function ContactForm() {
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [email, setEmail] = useState("");
+  const [extId, setExtId] = useState("");
   const [values, setValues] = useState<Record<string, string>>({
     FIRSTNAME: "",
     LASTNAME: "",
     SMS: "",
+    WHATSAPP: "",
+    LANDLINE_NUMBER: "",
   });
-  const [emailError, setEmailError] = useState<string | null>(null);
+  // Snapshot of loaded values so edit sends only changed fields.
+  const [initial, setInitial] = useState<Record<string, string>>({});
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [formError, setFormError] = useState<string | null>(null);
 
-  // Pre-fill the curated fields with the contact's CURRENT attribute values.
   const load = useCallback(async () => {
     if (!isEdit) return;
     setLoading(true);
     try {
       const c = await brevo.getContact(token, params.id!);
       const a = c?.attributes || {};
-      setEmail(c?.email || "");
-      setValues({
+      const loaded: Record<string, string> = {
+        email: c?.email || "",
+        EXT_ID: c?.ext_id != null ? String(c.ext_id) : "",
         FIRSTNAME: a.FIRSTNAME != null ? String(a.FIRSTNAME) : "",
         LASTNAME: a.LASTNAME != null ? String(a.LASTNAME) : "",
         SMS: a.SMS != null ? String(a.SMS) : "",
+        WHATSAPP: a.WHATSAPP != null ? String(a.WHATSAPP) : "",
+        LANDLINE_NUMBER: a.LANDLINE_NUMBER != null ? String(a.LANDLINE_NUMBER) : "",
+      };
+      setEmail(loaded.email);
+      setExtId(loaded.EXT_ID);
+      setValues({
+        FIRSTNAME: loaded.FIRSTNAME,
+        LASTNAME: loaded.LASTNAME,
+        SMS: loaded.SMS,
+        WHATSAPP: loaded.WHATSAPP,
+        LANDLINE_NUMBER: loaded.LANDLINE_NUMBER,
       });
+      setInitial(loaded);
     } catch (e: any) {
       toast.show(e?.message || "Failed to load contact", "error");
     } finally {
@@ -65,46 +86,116 @@ export default function ContactForm() {
     load();
   }, [load]);
 
-  const setVal = (key: string, v: string) => setValues((prev) => ({ ...prev, [key]: v }));
+  const setVal = (key: string, v: string) => {
+    setValues((prev) => ({ ...prev, [key]: v }));
+    setFieldErrors((prev) => ({ ...prev, [key]: undefined }));
+  };
+
+  const currentVal = (key: string) => (key === "EXT_ID" ? extId : key === "email" ? email : values[key]) || "";
+
+  // Normalisers
+  const normPhone = (v: string) => {
+    const t = v.trim();
+    const hasPlus = t.startsWith("+");
+    const rest = t.replace(/[^+\d\s]/g, "");
+    return hasPlus ? "+" + rest.slice(1).replace(/[^\d\s]/g, "") : rest;
+  };
+  const normWa = (v: string) => v.replace(/\D/g, "");
+
+  const needsCountryCode = (v: string) => {
+    const d = v.replace(/\D/g, "");
+    return !(v.trim().startsWith("+") || d.length >= 11);
+  };
+
+  // At-least-one-identifier rule (create only).
+  const hasIdentifier = [email, values.SMS, extId].some((v) => (v || "").trim() !== "");
+  const canSave = isEdit || hasIdentifier;
 
   const onSave = async () => {
-    setEmailError(null);
+    setFieldErrors({});
+    setFormError(null);
+    Keyboard.dismiss();
+
+    const errs: FieldErrors = {};
+    if (!isEdit && email.trim() && !EMAIL_RE.test(email.trim())) {
+      errs.email = "Enter a valid email address";
+    }
+    // Country-code checks (inline, do not send invalid)
+    for (const key of ["SMS", "LANDLINE_NUMBER"] as const) {
+      const v = values[key].trim();
+      if (v && needsCountryCode(v)) errs[key] = `${key === "SMS" ? "SMS" : "Landline"} needs a country code (e.g. +91…).`;
+    }
+    const wa = values.WHATSAPP.trim();
+    if (wa) {
+      const d = wa.replace(/\D/g, "");
+      if (!d || needsCountryCode(wa)) errs.WHATSAPP = "WhatsApp needs a country code (digits only, e.g. 4915778559164).";
+    }
+    if (Object.keys(errs).length) {
+      setFieldErrors(errs);
+      return;
+    }
+    if (!isEdit && !hasIdentifier) {
+      setFormError("Add an email, SMS number or external ID to create this contact.");
+      return;
+    }
+
+    // Build payload — omit empties; on edit send only changed fields.
+    const changed = (key: string) => isEdit && currentVal(key).trim() === (initial[key] || "").trim();
+    const attrs: Record<string, string> = {};
+    const put = (key: string, raw: string, norm: (s: string) => string) => {
+      const t = raw.trim();
+      if (t === "") return;
+      if (changed(key)) return;
+      attrs[key] = norm(t);
+    };
+    put("FIRSTNAME", values.FIRSTNAME, (s) => s.trim());
+    put("LASTNAME", values.LASTNAME, (s) => s.trim());
+    put("SMS", values.SMS, normPhone);
+    put("LANDLINE_NUMBER", values.LANDLINE_NUMBER, normPhone);
+    put("WHATSAPP", values.WHATSAPP, normWa);
+
+    const payload: any = {};
     if (!isEdit) {
-      if (!email.trim()) {
-        setEmailError("Email is required");
-        return;
-      }
-      if (!EMAIL_RE.test(email.trim())) {
-        setEmailError("Enter a valid email address");
+      if (email.trim()) payload.email = email.trim();
+      if (Object.keys(attrs).length) payload.attributes = attrs;
+      if (extId.trim()) payload.ext_id = extId.trim();
+      payload.updateEnabled = true;
+    } else {
+      if (Object.keys(attrs).length) payload.attributes = attrs;
+      if (!changed("EXT_ID") && extId.trim()) payload.ext_id = extId.trim();
+      // Skip if nothing actually changed on edit.
+      if (!Object.keys(attrs).length && !payload.ext_id) {
+        router.back();
         return;
       }
     }
 
-    // Only send non-empty values so unchanged/blank fields never wipe data.
-    const payloadAttrs: Record<string, string> = {};
-    FIELDS.forEach((f) => {
-      const v = (values[f.key] || "").trim();
-      if (v !== "") payloadAttrs[f.key] = v;
-    });
-
     setSaving(true);
     try {
       if (isEdit) {
-        await brevo.updateContact(token, params.id!, { attributes: payloadAttrs });
+        await brevo.updateContact(token, params.id!, payload);
         cache.del(cacheKeys.contact(params.id!), cacheKeys.contacts);
         toast.show("Contact updated", "success");
       } else {
-        await brevo.createContact(token, {
-          email: email.trim(),
-          attributes: payloadAttrs,
-          updateEnabled: true,
-        });
+        await brevo.createContact(token, payload);
         cache.del(cacheKeys.contacts);
         toast.show("Contact created", "success");
       }
       router.back();
     } catch (e: any) {
-      toast.show(e?.message || "Failed to save contact", "error");
+      const status = e?.upstreamStatus || e?.status;
+      const msg: string = e?.message || "Failed to save contact";
+      const msgLower = (msg + " " + (e?.detail?.message || "")).toLowerCase();
+      // Map known Brevo errors to the offending field.
+      if (status === 400 && (e?.detail?.field === "SMS" || msgLower.includes("sms"))) {
+        setFieldErrors({ SMS: msg });
+      } else if (status === 400 && (e?.detail?.field === "EXT_ID" || msgLower.includes("ext_id") || msgLower.includes("external"))) {
+        setFieldErrors({ EXT_ID: msg });
+      } else if (status === 400 && (e?.detail?.field === "WHATSAPP" || e?.detail?.field === "LANDLINE_NUMBER")) {
+        setFieldErrors({ [e.detail.field]: msg });
+      } else {
+        toast.show(msg, "error");
+      }
     } finally {
       setSaving(false);
     }
@@ -112,7 +203,6 @@ export default function ContactForm() {
 
   return (
     <View style={styles.container}>
-      {/* Modal header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <Pressable onPress={() => router.back()} hitSlop={12} testID="form-close-button">
           <Ionicons name="close" size={26} color={colors.onSurface} />
@@ -127,16 +217,20 @@ export default function ContactForm() {
         <>
           <KeyboardAwareScrollView
             bottomOffset={90}
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 120 }}
             showsVerticalScrollIndicator={false}
           >
             {/* Email (read-only in edit) */}
-            <Text style={styles.label}>Email {!isEdit ? <Text style={styles.req}>*</Text> : null}</Text>
+            <Text style={styles.label}>Email</Text>
             <TextInput
               testID="form-email-input"
-              style={[styles.input, isEdit && styles.inputDisabled, emailError && styles.inputError]}
+              style={[styles.input, isEdit && styles.inputDisabled, fieldErrors.email && styles.inputError]}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(v) => {
+                setEmail(v);
+                setFieldErrors((p) => ({ ...p, email: undefined }));
+              }}
               editable={!isEdit}
               placeholder="name@example.com"
               placeholderTextColor={colors.onSurfaceTertiary}
@@ -144,35 +238,67 @@ export default function ContactForm() {
               autoCorrect={false}
               keyboardType="email-address"
             />
-            {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+            {fieldErrors.email ? <Text style={styles.errorText}>{fieldErrors.email}</Text> : null}
             {isEdit ? <Text style={styles.hint}>Email cannot be changed here.</Text> : null}
 
-            {/* Curated editable fields */}
+            {/* Names + phones */}
             {FIELDS.map((f) => (
               <View key={f.key}>
                 <Text style={styles.label}>{f.label}</Text>
                 <TextInput
                   testID={`form-attr-${f.key}`}
-                  style={styles.input}
+                  style={[styles.input, fieldErrors[f.key] && styles.inputError]}
                   value={values[f.key]}
                   onChangeText={(v) => setVal(f.key, v)}
-                  placeholder={`Enter ${f.label.toLowerCase()}`}
+                  placeholder={
+                    f.keyboardType === "phone-pad" ? "+91 9788824675" : `Enter ${f.label.toLowerCase()}`
+                  }
                   placeholderTextColor={colors.onSurfaceTertiary}
                   keyboardType={f.keyboardType}
                   autoCapitalize={f.autoCapitalize}
                   autoCorrect={false}
                 />
+                {fieldErrors[f.key] ? <Text style={styles.errorText}>{fieldErrors[f.key]}</Text> : null}
               </View>
             ))}
+
+            {/* EXT_ID — top-level, alphanumeric */}
+            <Text style={styles.label}>External ID</Text>
+            <TextInput
+              testID="form-attr-EXT_ID"
+              style={[styles.input, fieldErrors.EXT_ID && styles.inputError]}
+              value={extId}
+              onChangeText={(v) => {
+                setExtId(v);
+                setFieldErrors((p) => ({ ...p, EXT_ID: undefined }));
+              }}
+              placeholder="user_12345"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="default"
+            />
+            {fieldErrors.EXT_ID ? <Text style={styles.errorText}>{fieldErrors.EXT_ID}</Text> : null}
+
+            {/* Form-level identifier message (create only) */}
+            {!isEdit && !canSave ? (
+              <Text style={styles.formError} testID="form-identifier-error">
+                Add an email, SMS number or external ID to create this contact.
+              </Text>
+            ) : null}
+            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
           </KeyboardAwareScrollView>
 
           <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
             <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
-              <PrimaryButton
+              <Button
+                variant="primary"
+                fullWidth
                 title={isEdit ? "Save Changes" : "Create Contact"}
                 icon="checkmark"
                 onPress={onSave}
                 loading={saving}
+                disabled={!canSave}
                 testID="save-contact-button"
               />
             </View>
@@ -196,7 +322,6 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface },
   label: { fontSize: font.base, fontWeight: "700", color: colors.onSurface, marginBottom: spacing.sm, marginTop: spacing.lg },
-  req: { color: colors.error },
   input: {
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.md,
@@ -211,6 +336,7 @@ const styles = StyleSheet.create({
   inputError: { borderColor: colors.error },
   errorText: { color: colors.error, fontSize: font.sm, marginTop: spacing.xs },
   hint: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.xs },
+  formError: { color: colors.error, fontSize: font.sm, marginTop: spacing.xl, lineHeight: 18 },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
