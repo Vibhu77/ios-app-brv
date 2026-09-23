@@ -1,0 +1,49 @@
+{
+  "summary": "Bug-fix verification: Settings -> Profile 'v.trim is not a function' crash (Brevo /v3/account returns address as OBJECT). VERIFIED FIXED. Frontend-only testing per request. (1) App boots cleanly to the Brevo login gate — no crash, no red screen, 0 page errors. (2) Deep-link to /settings/profile renders the Profile screen WITHOUT crashing: all 5 rows (First name, Last name, Email, Company, Address) render with '—' fallback for missing values; no '[object Object]' artifact; no error toast on open. (3) Back button (testID header-back-button) works — deep-linked case falls back to /login (router.canGoBack() false -> replace); in-session it would return to Settings. (4) Static verification of app/settings/profile.tsx: dash() is now type-safe (null/undefined->'—', string->trim||'—', number/bool->String, objects/arrays->'—'); formatAddress() joins street/zipCode/city/country filtering empties, '—' fallback; Address row correctly uses formatAddress not dash; all other dash() call sites (firstName/lastName/email/companyName) pass typed strings per Account type. (5) Runtime logic simulation in Node confirmed: formatAddress({street,city,zipCode,country}) -> '55 rue d'Amsterdam, 75008, Paris, France'; partial objects, empty strings, null all handled; dash(addressObject) -> '—' (old crash path now safe). (6) Metro bundler compiled cleanly (1391 modules), no compile/red-screen errors for profile.tsx. Cannot verify live session rendering of a real address object in web preview (OAuth deep-link round-trip impossible) — but the pure-function logic was executed with the exact real Brevo payload shape and passes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "expo package versions",
+        "issue": "Metro logs warn: expo@54.0.35 (expected ~54.0.37), expo-constants@18.0.13 (expected ~18.0.14). Non-blocking but should be updated for compatibility. Reference: /var/log/supervisor/expo.err.log"
+      }
+    ]
+  },
+  "test_report_links": [
+    "/tmp/fmt_check.js (formatAddress/dash runtime simulation)",
+    "/tmp/boot_state.png",
+    "/tmp/after_back.png"
+  ],
+  "action_items": [
+    "Remove the temporary diagnostic console.log('[profile] account.address = ...') at /app/frontend/app/settings/profile.tsx:30 before release (E1 confirmed it was temporary).",
+    "Fix stale type: Account.address is declared 'address?: string' in /app/frontend/src/lib/brevo.ts:59 but Brevo /v3/account returns an object {street, city, zipCode, country} — update the type to the object shape (or unknown) to match reality and avoid future type confusion.",
+    "MINOR: formatAddress() returns '—' if address ever arrives as a plain string (legacy/API variance); consider `if (typeof a === 'string') return a.trim() || '—'` for extra robustness.",
+    "OPTIONAL: bump expo to ~54.0.37 and expo-constants to ~18.0.14 to clear Metro compatibility warnings.",
+    "On-device smoke test with a real Brevo session: confirm Address row shows the formatted one-line address and no toast on open/back (only acceptance criterion not verifiable in web preview — logic already proven via Node simulation)."
+  ],
+  "critical_code_review_comments": [
+    "profile.tsx dash() fix is correct and defensive: unknown->string/number/bool handled, objects/arrays -> '—'. No other dash() call site can receive a non-string (firstName/lastName/email/companyName are typed strings).",
+    "formatAddress() filters empty/whitespace parts before joining — no leading/trailing separators; correct '—' fallback.",
+    "Address row (profile.tsx:66) correctly uses formatAddress with a cast; SettingsRow value prop receives a string in all paths.",
+    "Back navigation uses router.canGoBack() ? back() : replace('/(tabs)/settings') — safe for deep links (verified: deep-linked profile back -> /login, no crash).",
+    "Type mismatch remains in src/lib/brevo.ts:59 (address?: string vs actual object) — runtime-safe due to cast in profile.tsx, but misleading; flagged in action_items.",
+    "No deprecated Expo packages detected (no expo-av, expo-barcode-scanner, expo-background-fetch). Only benign react-native-web shadow*/pointerEvents deprecation warnings."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A (frontend-only request)",
+    "frontend": "100% of web-preview-verifiable criteria passed"
+  },
+  "seed_data_creation": "None. No live Brevo session possible in web preview; address rendering verified via Node simulation with the exact real /v3/account payload shape.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The trim crash is fixed and verified. Only unverified-on-device criterion: Address row rendering with a REAL Brevo account address object (requires OAuth session — impossible in web preview). If a session becomes available, open Settings -> Profile, confirm Address shows 'street, zipCode, city, country' one-liner, no toast on open/back. Remaining cleanup: remove console.log at profile.tsx:30, fix Account.address type in brevo.ts:59. Note: deep-linking /settings/profile without auth renders the screen with all '—' placeholders (auth gate does not hard-redirect this route; back falls back to /login) — acceptable, no data leaks.",
+  "test_credentials": "None needed/available. /app/memory/test_credentials.md is empty. No login attempted per instructions.",
+  "rca_of_issue": "Root cause: Brevo GET /v3/account returns 'address' as an OBJECT {street, city, zipCode, country}, but the old dash() helper assumed a string and called v.trim() -> TypeError 'v.trim is not a function' crashing the Profile render. Fix: dash() made type-safe (unknown input handling, objects -> '—') and new formatAddress() renders the address object as 'street, zipCode, city, country'. Verified: no reproduction of crash; object payload now renders readable one-liner (Node simulation); missing values render '—'; no '[object Object]'; no error toast; back navigation safe."
+}

@@ -10,6 +10,13 @@ import { openWeb } from "@/src/lib/open-web";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { Account } from "@/src/lib/brevo";
 
+type AccountAddress = {
+  street?: string;
+  city?: string;
+  zipCode?: string;
+  country?: string;
+};
+
 // Read-only profile. Brevo's public API has no endpoint to update account
 // profile, password, language or timezone — so nothing here is editable.
 export default function ProfileScreen() {
@@ -19,7 +26,20 @@ export default function ProfileScreen() {
   // Prefer the full /v3/account payload cached by the Settings screen.
   const account = cache.get<Account>(cacheKeys.account) || ctxAccount;
 
-  const dash = (v?: string) => (v && v.trim() ? v : "—");
+  const dash = (v: unknown): string => {
+    if (v === null || v === undefined) return "—";
+    if (typeof v === "string") return v.trim() || "—";
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    return "—"; // objects/arrays are never renderable as-is
+  };
+
+  const formatAddress = (a?: AccountAddress | null): string => {
+    if (!a || typeof a !== "object") return "—";
+    const parts = [a.street, a.zipCode, a.city, a.country].filter(
+      (p): p is string => typeof p === "string" && p.trim().length > 0
+    );
+    return parts.length ? parts.join(", ") : "—";
+  };
 
   return (
     <View style={styles.container}>
@@ -40,7 +60,7 @@ export default function ProfileScreen() {
           <SettingsRow label="Last name" value={dash(account?.lastName)} />
           <SettingsRow label="Email" value={dash(account?.email)} />
           <SettingsRow label="Company" value={dash(account?.companyName)} />
-          <SettingsRow label="Address" value={dash(account?.address)} isLast />
+          <SettingsRow label="Address" value={formatAddress(account?.address as AccountAddress)} isLast />
         </SettingsGroup>
 
         <SettingsGroup testID="profile-edit-web">
