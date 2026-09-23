@@ -187,7 +187,16 @@ const rowStyles = StyleSheet.create({
   label: { fontSize: font.base, fontWeight: "600", color: colors.onSurface },
   destructiveLabel: { color: colors.errorText },
   sublabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 1 },
-  value: { fontSize: font.base, color: colors.onSurfaceSecondary, fontVariant: ["tabular-nums"] },
+  // flexShrink + minWidth: 0 let long values truncate ("…") instead of
+  // squeezing the label into a vertical letter-stack.
+  value: {
+    fontSize: font.base,
+    color: colors.onSurfaceSecondary,
+    fontVariant: ["tabular-nums"],
+    flexShrink: 1,
+    minWidth: 0,
+    textAlign: "right",
+  },
   segment: {
     flexDirection: "row",
     backgroundColor: colors.surfaceSecondary,

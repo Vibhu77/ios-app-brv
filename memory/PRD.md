@@ -50,3 +50,15 @@ Follow-up: replace API-key auth with **Brevo OAuth 2.0** login (mandatory login 
 ## Next Tasks
 1. Add Brevo OAuth credentials to backend/.env; register redirect URI + scopes in Brevo.
 2. Smoke-test login + campaigns/contacts CRUD.
+
+## Implemented (2026-09-23)
+- Fix: SettingsRow value text no longer squeezes labels vertically — value now has flexShrink: 1, minWidth: 0, textAlign: "right" (long values truncate with "…"). Fixes Profile Address row and all value rows app-wide.
+- Removed local Date/Time format toggles from Settings (Brevo has no such API). Display group now has one "Date & time format" row redirecting to Brevo web localization settings.
+- Hardcoded single app-wide datetime format in src/lib/datetime.ts: "12 Sep 2026, 14:30" (D MMM YYYY, HH:mm, device TZ). Removed timeFormat/dateFormat keys from prefs.ts.
+
+## Backlog
+- P1: Rebuild Account screen (blocked: need raw marketingAutomation payload shape + identity scope confirmation from user).
+- P1: Phase 2 Naos structural translation (dark SummaryCard, FilterChip counts, Delivery Funnel) — on hold.
+- P2: WhatsApp/Landline-only contact creation (blocked: pending confirmation Brevo API accepts it).
+- P2: Rewrite outdated backend tests (test_brevo_proxy.py still asserts API-key flow).
+- P2: Campaign trend charts; category chips for campaign status filtering.

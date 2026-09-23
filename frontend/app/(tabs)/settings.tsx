@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
-import { Avatar, Skeleton } from "@/src/components/common";
+import { Avatar } from "@/src/components/common";
 import { SettingsGroup, SettingsRow } from "@/src/components/settings";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";
 import { useBrevo } from "@/src/context/BrevoContext";
@@ -20,7 +20,7 @@ import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { prefs } from "@/src/lib/prefs";
 import { openWeb } from "@/src/lib/open-web";
 import { diagnostics } from "@/src/lib/diagnostics";
-import { fmtDate, fmtDateTime, nf } from "@/src/lib/format";
+import { fmtDate, nf } from "@/src/lib/format";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -246,26 +246,18 @@ export default function SettingsScreen() {
           />
         </SettingsGroup>
 
-        {/* ===== GROUP 4: DISPLAY (local, independent of Brevo) ===== */}
+        {/* ===== GROUP 4: DISPLAY ===== */}
+        {/* Brevo has no date/time format API — one fixed format app-wide;
+            localization settings live on Brevo web only. */}
         <SettingsGroup title="Display" testID="settings-display">
           <SettingsRow
-            label="Time format"
-            segment={{
-              options: ["12h", "24h"],
-              selected: myPrefs.timeFormat,
-              onSelect: (v) => prefs.set("timeFormat", v),
-              testIDPrefix: "time-format",
-            }}
-          />
-          <SettingsRow
-            label="Date format"
-            segment={{
-              options: ["DD-MM-YYYY", "MM-DD-YYYY"],
-              selected: myPrefs.dateFormat,
-              onSelect: (v) => prefs.set("dateFormat", v),
-              testIDPrefix: "date-format",
-            }}
+            label="Date & time format"
+            sublabel="Managed on Brevo web"
+            externalLink
+            onPress={() => openWeb("https://app.brevo.com/settings/localization")}
+            accessibilityLabel="Edit date and time format on Brevo web"
             isLast
+            testID="display-web-row"
           />
         </SettingsGroup>
 
