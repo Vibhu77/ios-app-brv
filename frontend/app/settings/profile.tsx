@@ -60,7 +60,7 @@ export default function ProfileScreen() {
           <SettingsRow label="Last name" value={dash(account?.lastName)} />
           <SettingsRow label="Email" value={dash(account?.email)} />
           <SettingsRow label="Company" value={dash(account?.companyName)} />
-          <SettingsRow label="Address" value={formatAddress(account?.address as AccountAddress)} isLast />
+          <SettingsRow label="Address" stacked value={formatAddress(account?.address as AccountAddress)} isLast />
         </SettingsGroup>
 
         <SettingsGroup testID="profile-edit-web">

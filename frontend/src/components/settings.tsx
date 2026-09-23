@@ -64,6 +64,7 @@ export function SettingsRow({
   chevron,
   externalLink,
   segment,
+  stacked,
   onPress,
   destructive,
   left,
@@ -81,6 +82,7 @@ export function SettingsRow({
   chevron?: boolean;
   externalLink?: boolean;
   segment?: { options: (string | number)[]; selected: string | number; onSelect: (v: any) => void; testIDPrefix?: string };
+  stacked?: boolean;
   onPress?: () => void;
   destructive?: boolean;
   left?: React.ReactNode;
@@ -90,6 +92,23 @@ export function SettingsRow({
   accessibilityLabel?: string;
 }) {
   const interactive = !!onPress || switchValue !== undefined || !!segment;
+
+  // Stacked variant: label on its own line, value wrapping fully below it —
+  // used for long free-text values (e.g. postal address) that must never
+  // truncate or collapse the label into a vertical letter-stack.
+  if (stacked) {
+    return (
+      <View
+        style={[rowStyles.stackedRow, !isLast && rowStyles.separator]}
+        testID={testID}
+        accessible
+        accessibilityLabel={`${label}${value ? `, ${value}` : ""}`}
+      >
+        <Text style={rowStyles.label}>{label}</Text>
+        <Text style={rowStyles.stackedValue}>{value}</Text>
+      </View>
+    );
+  }
 
   const content = (
     <>
@@ -180,6 +199,19 @@ const rowStyles = StyleSheet.create({
     minHeight: 48,
     paddingVertical: spacing.md,
     backgroundColor: colors.surface,
+  },
+  stackedRow: {
+    flexDirection: "column",
+    gap: 4,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  stackedValue: {
+    fontSize: font.base,
+    color: colors.onSurfaceSecondary,
+    flexWrap: "wrap",
+    lineHeight: 22,
   },
   separator: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   left: { flexShrink: 0 },
