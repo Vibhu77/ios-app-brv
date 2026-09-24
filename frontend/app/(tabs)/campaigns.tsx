@@ -1,18 +1,37 @@
-import React, { useCallback, useState } from "react";
-import { StyleSheet, Text, View, Pressable, RefreshControl } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
-import { KpiCard, StateView, Skeleton, Card, StatusBadge } from "@/src/components/common";
+import { StateView, Skeleton, Card, StatusBadge } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { usePrefs } from "@/src/hooks/use-prefs";
-import { nf, pctStr, pctVal, fmtDate } from "@/src/lib/format";
+import { nf, pctStr, fmtDate } from "@/src/lib/format";
+
+// Status filter chips. `value` is the real Brevo API status; `null` = All.
+// The transient states inReview + cancelling are folded into a single "Other"
+// chip (value "__other__") rather than each getting their own slot.
+const OTHER = "__other__";
+const OTHER_STATUSES = ["inReview", "cancelling"];
+type ChipDef = { label: string; value: string | null };
+const CHIP_DEFS: ChipDef[] = [
+  { label: "All", value: null },
+  { label: "Draft", value: "draft" },
+  { label: "Sent", value: "sent" },
+  { label: "Scheduled", value: "queued" },
+  { label: "Running", value: "inProcess" },
+  { label: "Suspended", value: "suspended" },
+  { label: "Archived", value: "archive" },
+  { label: "Cancelled", value: "cancelled" },
+  { label: "Other", value: OTHER },
+];
 
 export default function CampaignsScreen() {
   const insets = useSafeAreaInsets();
@@ -24,6 +43,8 @@ export default function CampaignsScreen() {
   const [loading, setLoading] = useState(!cache.get<Campaign[]>(cacheKeys.campaigns));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [activeStatus, setActiveStatus] = useState<string | null>(null);
 
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((e) => {
@@ -53,23 +74,121 @@ export default function CampaignsScreen() {
 
   useFocusRefetch(load);
 
+  // --- Account summary (from the full list, not the filtered view) ---
   const sentCampaigns = campaigns.filter((c) => (c.statistics?.globalStats?.sent || 0) > 0);
   const totalSent = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.sent || 0), 0);
   const totalDelivered = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.delivered || 0), 0);
   const totalViews = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.uniqueViews || 0), 0);
   const totalClicks = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.uniqueClicks || 0), 0);
 
+  // --- Chip counts, computed client-side from the already-fetched list ---
+  // No per-status API calls: the backend returns every campaign in one payload,
+  // so these counts are exact for accounts whose campaigns fit the fetch window.
+  const counts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const c of campaigns) {
+      const s = c.status || "";
+      m[s] = (m[s] || 0) + 1;
+    }
+    return m;
+  }, [campaigns]);
+
+  const chipCount = useCallback(
+    (value: string | null) => {
+      if (value === null) return campaigns.length;
+      if (value === OTHER) return OTHER_STATUSES.reduce((a, s) => a + (counts[s] || 0), 0);
+      return counts[value] || 0;
+    },
+    [campaigns.length, counts]
+  );
+
+  // All is always shown; other chips appear only when they have matches.
+  const chips = CHIP_DEFS.filter((c) => c.value === null || chipCount(c.value) > 0);
+
+  // --- Visible list = status filter + client-side name search ---
+  const visibleCampaigns = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return campaigns.filter((c) => {
+      if (activeStatus !== null) {
+        if (activeStatus === OTHER) {
+          if (!OTHER_STATUSES.includes(c.status || "")) return false;
+        } else if ((c.status || "") !== activeStatus) {
+          return false;
+        }
+      }
+      if (q && !(c.name || "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [campaigns, activeStatus, query]);
+
+  const searchBox = (
+    <View style={styles.searchBox}>
+      <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
+      <TextInput
+        testID="campaigns-search-input"
+        style={styles.searchInput}
+        placeholder="Search campaigns"
+        placeholderTextColor={colors.onSurfaceTertiary}
+        value={query}
+        onChangeText={setQuery}
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="search"
+      />
+      {query.length > 0 ? (
+        <Pressable onPress={() => setQuery("")} hitSlop={10} testID="campaigns-search-clear">
+          <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
+  const chipRow = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.chipsContent}
+      style={styles.chipsRow}
+    >
+      {chips.map((c) => {
+        const active = activeStatus === c.value;
+        return (
+          <Pressable
+            key={c.value ?? "all"}
+            testID={`campaign-chip-${c.value ?? "all"}`}
+            onPress={() => setActiveStatus(c.value)}
+            style={[styles.chip, active && styles.chipActive]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={`${c.label}, ${chipCount(c.value)}`}
+          >
+            <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.label}</Text>
+            <Text style={[styles.chipCount, active && styles.chipCountActive]}>{chipCount(c.value)}</Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+
+  const summaryCard = (
+    <View style={styles.summary} testID="campaigns-summary">
+      <Text style={styles.summaryEyebrow}>TOTAL SENT · LAST 30 DAYS</Text>
+      <Text style={styles.summaryFigure}>{nf(totalSent)}</Text>
+      <View style={styles.summaryDivider} />
+      <View style={styles.summaryStats}>
+        <SummaryStat label="Campaigns" value={nf(campaigns.length)} />
+        <SummaryStat label="Avg open" value={pctStr(totalViews, totalDelivered)} />
+        <SummaryStat label="Avg click" value={pctStr(totalClicks, totalDelivered)} />
+      </View>
+    </View>
+  );
+
   const listHeader = (
     <View>
       <LargeTitle title="Campaigns" />
-      <View style={styles.kpiRow}>
-        <KpiCard label="Total Sent" value={nf(totalSent)} testID="kpi-total-sent" />
-        <KpiCard label="Campaigns" value={nf(campaigns.length)} testID="kpi-campaigns" />
-      </View>
-      <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
-        <KpiCard label="Avg Open Rate" value={pctStr(totalViews, totalDelivered)} testID="kpi-open-rate" />
-        <KpiCard label="Avg Click Rate" value={pctStr(totalClicks, totalDelivered)} testID="kpi-click-rate" />
-      </View>
+      {searchBox}
+      {chipRow}
+      {summaryCard}
       <Text style={styles.sectionTitle}>Recent campaigns</Text>
     </View>
   );
@@ -105,19 +224,15 @@ export default function CampaignsScreen() {
     );
   };
 
+  const filtering = activeStatus !== null || query.trim().length > 0;
+
   return (
     <View style={styles.container}>
       {loading ? (
         <View style={{ flex: 1, paddingTop: insets.top, paddingHorizontal: spacing.lg }}>
           <LargeTitle title="Campaigns" />
-          <View style={styles.kpiRow}>
-            <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
-            <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
-          </View>
-          <View style={[styles.kpiRow, { marginTop: spacing.md }]}>
-            <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
-            <Skeleton style={{ flex: 1, height: 84, borderRadius: radius.md }} />
-          </View>
+          <Skeleton style={{ height: 40, borderRadius: radius.md, marginBottom: spacing.md }} />
+          <Skeleton style={{ height: 118, borderRadius: radius.lg, marginBottom: spacing.md }} />
           {[1, 2, 3].map((i) => (
             <Skeleton key={i} style={{ height: 120, borderRadius: radius.md, marginTop: spacing.md }} />
           ))}
@@ -137,20 +252,36 @@ export default function CampaignsScreen() {
       ) : (
         <Animated.FlatList
           testID="campaigns-list"
-          data={campaigns}
+          data={visibleCampaigns}
           keyExtractor={(c: Campaign) => String(c.id)}
           renderItem={renderItem}
           ListHeaderComponent={listHeader}
           onScroll={onScroll}
           scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           ListEmptyComponent={
             <View style={{ paddingTop: spacing.xl }}>
-              <StateView
-                icon="mail-outline"
-                title="No campaigns yet"
-                message="Create a campaign in Brevo to see its report here."
-                testID="campaigns-empty"
-              />
+              {filtering ? (
+                <StateView
+                  icon="search-outline"
+                  title="No matching campaigns"
+                  message="Try a different search or filter."
+                  actionLabel="Clear filters"
+                  onAction={() => {
+                    setQuery("");
+                    setActiveStatus(null);
+                  }}
+                  testID="campaigns-empty-filtered"
+                />
+              ) : (
+                <StateView
+                  icon="mail-outline"
+                  title="No campaigns yet"
+                  message="Create a campaign in Brevo to see its report here."
+                  testID="campaigns-empty"
+                />
+              )}
             </View>
           }
           contentContainerStyle={{
@@ -176,6 +307,15 @@ export default function CampaignsScreen() {
   );
 }
 
+function SummaryStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryStat}>
+      <Text style={styles.summaryStatValue}>{value}</Text>
+      <Text style={styles.summaryStatLabel}>{label}</Text>
+    </View>
+  );
+}
+
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.miniStat}>
@@ -187,7 +327,6 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  kpiRow: { flexDirection: "row", gap: spacing.md },
   sectionTitle: {
     fontSize: font.lg,
     fontWeight: "700",
@@ -195,6 +334,66 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     marginBottom: spacing.sm,
   },
+  // --- Search ---
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    height: 40,
+    marginBottom: spacing.md,
+  },
+  searchInput: { flex: 1, fontSize: font.base, color: colors.onSurface, paddingVertical: 0 },
+  // --- Filter chips ---
+  chipsRow: { marginBottom: spacing.md, marginHorizontal: -spacing.lg },
+  chipsContent: { paddingHorizontal: spacing.lg, gap: spacing.sm },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 34,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  chipActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
+  chipText: { fontSize: font.base, fontWeight: "600", color: colors.onSurface },
+  chipTextActive: { color: colors.onBrandPrimary },
+  chipCount: { fontSize: font.sm, fontWeight: "700", color: colors.onSurfaceTertiary, fontVariant: ["tabular-nums"] },
+  chipCountActive: { color: colors.onBrandPrimary },
+  // --- Dark summary card ---
+  summary: {
+    backgroundColor: colors.surfaceInverse,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+  },
+  summaryEyebrow: {
+    fontSize: font.sm,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    color: "rgba(255,255,255,0.55)",
+  },
+  summaryFigure: {
+    fontSize: font.display,
+    fontWeight: "800",
+    color: colors.onSurfaceInverse,
+    letterSpacing: -0.5,
+    marginTop: 2,
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    marginVertical: spacing.md,
+  },
+  summaryStats: { flexDirection: "row" },
+  summaryStat: { flex: 1 },
+  summaryStatValue: { fontSize: font.lg, fontWeight: "800", color: colors.onSurfaceInverse },
+  summaryStatLabel: { fontSize: font.sm, color: "rgba(255,255,255,0.55)", marginTop: 2, fontWeight: "600" },
+  // --- Campaign card ---
   campaignCard: { marginBottom: spacing.md },
   campaignHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   campaignName: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface, flex: 1 },
