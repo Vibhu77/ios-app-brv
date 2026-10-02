@@ -13,8 +13,28 @@ export function setUnauthorizedHandler(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
 
-export const LOGIN_URL = (redirect: string) =>
-  `${API}/auth/brevo/login?redirect=${encodeURIComponent(redirect)}`;
+export const LOGIN_URL = (redirect: string, codeChallenge: string) =>
+  `${API}/auth/brevo/login?redirect=${encodeURIComponent(redirect)}&code_challenge=${encodeURIComponent(codeChallenge)}`;
+
+// Exchange a one-time OAuth code (+ PKCE verifier) for a session token. This is
+// unauthenticated and bypasses `req()` since there's no bearer token yet.
+export async function exchangeOAuthCode(code: string, codeVerifier: string): Promise<string> {
+  const res = await fetch(`${API}/auth/exchange`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, code_verifier: codeVerifier }),
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const detail = data?.detail;
+    const msg =
+      (detail && (detail.message || (typeof detail === "string" ? detail : null))) ||
+      "Sign in failed";
+    throw new Error(typeof msg === "string" ? msg : "Sign in failed");
+  }
+  return data?.token || "";
+}
 
 async function req(path: string, token: string, opts: RequestInit = {}) {
   const res = await fetch(`${API}${path}`, {

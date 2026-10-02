@@ -9,6 +9,10 @@ import secrets
 import asyncio
 import logging
 import urllib.parse
+import hashlib
+import base64
+import hmac
+import ipaddress
 from pathlib import Path
 from typing import Optional
 import httpx
@@ -28,6 +32,60 @@ CLIENT_ID = os.environ.get("BREVO_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("BREVO_CLIENT_SECRET", "")
 REDIRECT_URI = os.environ.get("BREVO_REDIRECT_URI", "")
 SCOPES = os.environ.get("BREVO_SCOPES", "account:read campaigns.email:read campaigns.email:write contacts:read contacts:write")
+
+# --- OAuth redirect allow-list (anti open-redirect / token-leak) ---
+# Only these forms of `redirect` are accepted by /auth/brevo/login. The value is
+# parsed with urllib.parse (never substring-matched) and each URL component is
+# checked. Allowed:
+#   1. frontend://oauth-complete            (standalone app scheme, app.json)
+#   2. https://<preview-host>/oauth-complete (Expo web preview)
+#   3. exp:// or exps:// .../--/oauth-complete, ONLY when the host is localhost
+#      or a private LAN IP (Expo Go during development)
+APP_SCHEME = "frontend"
+REDIRECT_PATH = "oauth-complete"
+WEB_REDIRECT_HOSTS = {"brevo-ios-dashboard.preview.emergentagent.com"}
+OAUTH_STATE_TTL = 600  # seconds — states older than this are rejected
+OAUTH_CODE_TTL = 60    # seconds — one-time exchange codes expire fast
+
+
+def _host_is_local_or_private(host: str) -> bool:
+    if not host:
+        return False
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback
+
+
+def _redirect_allowed(redirect: str, request_host: str | None) -> bool:
+    try:
+        u = urllib.parse.urlparse(redirect)
+    except Exception:
+        return False
+    scheme = (u.scheme or "").lower()
+    # 1) Standalone app custom scheme: frontend://oauth-complete
+    if scheme == APP_SCHEME:
+        combined = f"{u.netloc}{u.path}".strip("/")
+        return combined == REDIRECT_PATH and not u.query and not u.fragment
+    # 2) Web preview over HTTPS. Accept the configured preview host and (to stay
+    #    fork-proof, since the app is served from the same origin as this API)
+    #    the current request's own host.
+    if scheme == "https":
+        hosts = set(WEB_REDIRECT_HOSTS)
+        if request_host:
+            hosts.add(request_host.split(":")[0].lower())
+        return (u.hostname in hosts) and (u.path.rstrip("/") == f"/{REDIRECT_PATH}")
+    # 3) Expo Go dev deep link: exp(s)://<lan>:<port>/--/oauth-complete
+    if scheme in ("exp", "exps"):
+        return (u.path.rstrip("/").endswith(f"/--/{REDIRECT_PATH}")) and _host_is_local_or_private(u.hostname or "")
+    return False
+
+
+def _b64url_sha256(value: str) -> str:
+    return base64.urlsafe_b64encode(hashlib.sha256(value.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
 
 # --- Mongo ---
 mongo_url = os.environ["MONGO_URL"]
@@ -249,11 +307,21 @@ async def root():
 
 
 @api_router.get("/auth/brevo/login")
-async def brevo_login(redirect: str):
+async def brevo_login(request: Request, redirect: str, code_challenge: str):
     if not (CLIENT_ID and CLIENT_SECRET and REDIRECT_URI):
         raise HTTPException(status_code=500, detail={"message": "OAuth is not configured on the server."})
+    # Reject any redirect that isn't an exact, allow-listed app destination.
+    if not _redirect_allowed(redirect, request.headers.get("host")):
+        logger.warning("Rejected OAuth login: disallowed redirect=%r", redirect)
+        raise HTTPException(status_code=400, detail={"message": "Invalid redirect."})
+    # PKCE S256 challenge: base64url(sha256(verifier)), 43-128 chars.
+    cc = code_challenge or ""
+    if not (43 <= len(cc) <= 128) or not all(c.isalnum() or c in "-_" for c in cc):
+        raise HTTPException(status_code=400, detail={"message": "Invalid code challenge."})
     state = secrets.token_urlsafe(24)
-    await db.oauth_states.insert_one({"state": state, "redirect": redirect, "created_at": time.time()})
+    await db.oauth_states.insert_one(
+        {"state": state, "redirect": redirect, "code_challenge": cc, "created_at": time.time()}
+    )
     params = {
         "response_type": "code",
         "client_id": CLIENT_ID,
@@ -272,10 +340,11 @@ async def brevo_callback(
     error: Optional[str] = None,
     error_description: Optional[str] = None,
 ):
-    st = await db.oauth_states.find_one({"state": state}) if state else None
+    # Atomically consume the state (prevents replay) and enforce freshness.
+    st = await db.oauth_states.find_one_and_delete({"state": state}) if state else None
     redirect = st["redirect"] if st else ""
-    if state:
-        await db.oauth_states.delete_one({"state": state})
+    if st and (time.time() - st.get("created_at", 0) > OAUTH_STATE_TTL):
+        st = None  # expired: treat as invalid, but still bounce back via the (validated) redirect
 
     def back_with_error(msg: str):
         if redirect:
@@ -338,8 +407,41 @@ async def brevo_callback(
         "created_at": time.time(),
     })
 
+    # Instead of leaking the session token in the redirect URL, issue a
+    # single-use, short-lived (60s) code bound to this login's PKCE challenge.
+    # The app POSTs {code, code_verifier} to /auth/exchange to get the token.
+    one_time_code = secrets.token_urlsafe(32)
+    await db.oauth_codes.insert_one({
+        "code_hash": hashlib.sha256(one_time_code.encode("ascii")).hexdigest(),
+        "code_challenge": st.get("code_challenge", ""),
+        "session_token": session_token,
+        "created_at": time.time(),
+    })
+
     sep = "&" if "?" in redirect else "?"
-    return RedirectResponse(f"{redirect}{sep}token={urllib.parse.quote(session_token)}")
+    return RedirectResponse(f"{redirect}{sep}code={urllib.parse.quote(one_time_code)}")
+
+
+@api_router.post("/auth/exchange")
+async def auth_exchange(request: Request):
+    # One-time code -> session token, gated by PKCE. The code is consumed
+    # atomically so it can never be redeemed twice.
+    body = await request.json()
+    code = (body or {}).get("code") or ""
+    verifier = (body or {}).get("code_verifier") or ""
+    if not code or not verifier:
+        raise HTTPException(status_code=400, detail={"message": "Missing code or verifier."})
+    grant = await db.oauth_codes.find_one_and_delete(
+        {"code_hash": hashlib.sha256(code.encode("ascii")).hexdigest()}
+    )
+    if not grant:
+        raise HTTPException(status_code=400, detail={"message": "Invalid or expired code."})
+    if time.time() - grant.get("created_at", 0) > OAUTH_CODE_TTL:
+        raise HTTPException(status_code=400, detail={"message": "Code expired. Please sign in again."})
+    expected = _b64url_sha256(verifier)
+    if not hmac.compare_digest(expected, grant.get("code_challenge", "")):
+        raise HTTPException(status_code=400, detail={"message": "PKCE verification failed."})
+    return {"token": grant["session_token"]}
 
 
 @api_router.get("/auth/me")
@@ -522,6 +624,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def _ensure_oauth_ttl_indexes():
+    # Backstop cleanup of expired OAuth artifacts. Correctness never depends on
+    # TTL timing — both the callback and /auth/exchange re-check expiry in-query.
+    try:
+        await db.oauth_states.create_index("created_at", expireAfterSeconds=OAUTH_STATE_TTL)
+        await db.oauth_codes.create_index("created_at", expireAfterSeconds=OAUTH_CODE_TTL)
+    except Exception as e:
+        logger.warning("OAuth TTL index setup skipped: %s", e)
 
 
 @app.on_event("shutdown")

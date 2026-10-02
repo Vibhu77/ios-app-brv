@@ -3,12 +3,16 @@ import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import { storage } from "@/src/utils/storage";
-import { brevo, LOGIN_URL, Account, setUnauthorizedHandler } from "@/src/lib/brevo";
+import { brevo, LOGIN_URL, exchangeOAuthCode, Account, setUnauthorizedHandler } from "@/src/lib/brevo";
+import { createPkce } from "@/src/lib/pkce";
 import { cache } from "@/src/lib/cache";
 
 WebBrowser.maybeCompleteAuthSession();
 
 const KEY = "brevo_session_token";
+// PKCE verifier persisted across the browser round-trip (survives a full-page
+// redirect on web and the deep-link bounce in Expo Go). Deleted after exchange.
+const PKCE_KEY = "brevo_pkce_verifier";
 
 type Ctx = {
   token: string;
@@ -18,6 +22,7 @@ type Ctx = {
   login: () => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
   setSession: (token: string) => Promise<void>;
+  exchangeCode: (code: string) => Promise<boolean>;
 };
 
 const BrevoContext = createContext<Ctx>({} as Ctx);
@@ -85,10 +90,32 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
     [hydrate]
   );
 
+  // Redeem a one-time OAuth code for a session token using the PKCE verifier
+  // we stashed before opening the browser. Single-use: the verifier is removed
+  // on the first successful exchange, so a duplicate callback is a silent no-op.
+  const exchangeCode = useCallback(
+    async (code: string): Promise<boolean> => {
+      const verifier = (await storage.secureGet<string>(PKCE_KEY, "")) || "";
+      if (!verifier) return false;
+      try {
+        const t = await exchangeOAuthCode(code, verifier);
+        await storage.secureRemove(PKCE_KEY);
+        if (t) {
+          await setSession(t);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    },
+    [setSession]
+  );
+
   // Catch-all deep-link handler. In Expo Go the browser bounces back to the
-  // dynamic `exp://.../oauth-complete?token=...` link; openAuthSessionAsync may
-  // resolve as `dismiss` (not `success`) so the token isn't returned inline.
-  // This listener captures the token from the incoming URL regardless.
+  // dynamic `exp://.../oauth-complete?code=...` link; openAuthSessionAsync may
+  // resolve as `dismiss` (not `success`) so the code isn't returned inline.
+  // This listener captures the code from the incoming URL regardless.
   const handleIncomingUrl = useCallback(
     async (url: string | null) => {
       if (!url) return;
@@ -99,10 +126,10 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       if (!(parsed.path || "").includes("oauth-complete")) return;
-      const t = parsed.queryParams?.token as string | undefined;
-      if (t) await setSession(String(t));
+      const code = parsed.queryParams?.code as string | undefined;
+      if (code) await exchangeCode(String(code));
     },
-    [setSession]
+    [exchangeCode]
   );
 
   useEffect(() => {
@@ -115,18 +142,22 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async () => {
     const redirect = Linking.createURL("oauth-complete");
+    const { verifier, challenge } = await createPkce();
+    // Persist the verifier BEFORE opening the browser so it survives the
+    // round-trip (web full-page redirect / Expo Go deep-link bounce).
+    await storage.secureSet(PKCE_KEY, verifier);
     try {
-      const result = await WebBrowser.openAuthSessionAsync(LOGIN_URL(redirect), redirect);
+      const result = await WebBrowser.openAuthSessionAsync(LOGIN_URL(redirect, challenge), redirect);
       if (result.type === "success" && result.url) {
         const parsed = Linking.parse(result.url);
         const err = parsed.queryParams?.error as string | undefined;
-        const t = parsed.queryParams?.token as string | undefined;
+        const code = parsed.queryParams?.code as string | undefined;
         if (err) return { ok: false, error: decodeURIComponent(err) };
-        if (t) {
-          await setSession(t);
-          return { ok: true };
+        if (code) {
+          const ok = await exchangeCode(String(code));
+          return ok ? { ok: true } : { ok: false, error: "Sign in failed" };
         }
-        return { ok: false, error: "No session returned" };
+        return { ok: false, error: "No authorization code returned" };
       }
       // On some platforms (notably Expo Go) the session completes via the
       // deep-link listener above rather than the returned result — treat
@@ -138,7 +169,7 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
     } catch (e: any) {
       return { ok: false, error: e?.message || "Sign in failed" };
     }
-  }, [setSession]);
+  }, [exchangeCode]);
 
   const logout = useCallback(async () => {
     try {
@@ -154,7 +185,7 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <BrevoContext.Provider
-      value={{ token, account, loading, isConnected: !!token, login, logout, setSession }}
+      value={{ token, account, loading, isConnected: !!token, login, logout, setSession, exchangeCode }}
     >
       {children}
     </BrevoContext.Provider>
