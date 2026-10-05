@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { useIsFocused } from "@react-navigation/native";
+import { useIsFocused } from "expo-router/react-navigation";
 import { prefs } from "@/src/lib/prefs";
 
 // Runs `fn` on screen focus (tab switch / navigate back) AND when the app

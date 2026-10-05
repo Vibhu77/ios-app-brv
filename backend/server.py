@@ -78,9 +78,20 @@ def _redirect_allowed(redirect: str, request_host: str | None) -> bool:
         if request_host:
             hosts.add(request_host.split(":")[0].lower())
         return (u.hostname in hosts) and (u.path.rstrip("/") == f"/{REDIRECT_PATH}")
-    # 3) Expo Go dev deep link: exp(s)://<lan>:<port>/--/oauth-complete
+    # 3) Expo Go dev deep link: exp(s)://<host>/--/oauth-complete
+    #    Accept localhost / private-LAN hosts (classic `expo start`) AND the
+    #    known Emergent preview/tunnel host(s) that Expo Go uses here. We never
+    #    accept arbitrary exp:// hosts.
     if scheme in ("exp", "exps"):
-        return (u.path.rstrip("/").endswith(f"/--/{REDIRECT_PATH}")) and _host_is_local_or_private(u.hostname or "")
+        if u.path.rstrip("/").endswith(f"/--/{REDIRECT_PATH}"):
+            host = u.hostname or ""
+            if _host_is_local_or_private(host):
+                return True
+            allowed = set(WEB_REDIRECT_HOSTS)
+            if request_host:
+                allowed.add(request_host.split(":")[0].lower())
+            return host in allowed
+        return False
     return False
 
 

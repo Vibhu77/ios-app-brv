@@ -142,6 +142,9 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async () => {
     const redirect = Linking.createURL("oauth-complete");
+    // Diagnostic (dev only): the exact deep-link the backend must allow-list.
+    // In Expo Go this streams to the Metro dev-server logs.
+    if (__DEV__) console.log("[oauth] Linking.createURL('oauth-complete') =", redirect);
     const { verifier, challenge } = await createPkce();
     // Persist the verifier BEFORE opening the browser so it survives the
     // round-trip (web full-page redirect / Expo Go deep-link bounce).

@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useBottomTabBarHeight } from "expo-router/js-tabs";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
