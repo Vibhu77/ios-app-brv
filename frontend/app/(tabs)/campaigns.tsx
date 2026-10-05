@@ -121,7 +121,9 @@ export default function CampaignsScreen() {
   // summary card above is intentionally computed from the full `campaigns`
   // list, so searching/sorting never changes its numbers.
   const visibleCampaigns = useMemo(() => {
-    const q = query.trim().toLowerCase().replace(/^#/, "");
+    const rawQ = query.trim().toLowerCase();
+    const isHash = rawQ.startsWith("#");
+    const q = isHash ? rawQ.slice(1) : rawQ;
     const filtered = campaigns.filter((c) => {
       if (activeStatus !== null) {
         if (activeStatus === OTHER) {
@@ -131,10 +133,15 @@ export default function CampaignsScreen() {
         }
       }
       if (q) {
-        const name = (c.name || "").toLowerCase();
-        const subject = (c.subject || "").toLowerCase();
         const id = String(c.id).toLowerCase();
-        if (!(name.includes(q) || subject.includes(q) || id.includes(q))) return false;
+        if (isHash) {
+          // "#25" matches ID 25 exactly, not 250.
+          if (id !== q) return false;
+        } else {
+          const name = (c.name || "").toLowerCase();
+          const subject = (c.subject || "").toLowerCase();
+          if (!(name.includes(q) || subject.includes(q) || id.includes(q))) return false;
+        }
       }
       return true;
     });

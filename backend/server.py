@@ -583,8 +583,10 @@ def _build_contact_payload(raw: dict, is_create: bool):
         if v.strip():
             cleaned = _clean_phone(v)
             digits = cleaned.lstrip("+")
-            if not cleaned.startswith("+") and len(digits) < 11:
-                errors.append({"field": k, "message": f"{k} needs a country code (e.g. +91…)."})
+            # The app already validates with libphonenumber-js and sends E.164.
+            # Require "+" followed by 7–15 digits (E.164 length).
+            if not (cleaned.startswith("+") and digits.isdigit() and 7 <= len(digits) <= 15):
+                errors.append({"field": k, "message": f"{k} must be + followed by 7–15 digits (e.g. +4512345678)."})
             else:
                 attrs[k] = cleaned
         elif not is_create:
@@ -593,8 +595,9 @@ def _build_contact_payload(raw: dict, is_create: bool):
         wa = attrs_in["WHATSAPP"]
         if wa.strip():
             digits = "".join(ch for ch in wa if ch.isdigit())
-            if not digits or (not wa.strip().startswith("+") and len(digits) < 11):
-                errors.append({"field": "WHATSAPP", "message": "WHATSAPP needs a country code (digits only, e.g. 4915778559164)."})
+            # App sends digits only (no "+"); accept any valid E.164 length.
+            if not (7 <= len(digits) <= 15):
+                errors.append({"field": "WHATSAPP", "message": "WHATSAPP must be 7–15 digits (e.g. 4512345678)."})
             else:
                 attrs["WHATSAPP"] = digits
         elif not is_create:
@@ -613,9 +616,11 @@ def _build_contact_payload(raw: dict, is_create: bool):
     if attrs:
         payload["attributes"] = attrs
 
-    if is_create:
+    if is_create and not errors:
         # At least one identifier: email, SMS, WhatsApp, landline or ext_id —
-        # same as Brevo web. Names alone cannot create a contact.
+        # same as Brevo web. Names alone cannot create a contact. Skipped when
+        # a field failed validation so the specific error surfaces instead of
+        # this generic one.
         if not (
             payload.get("email")
             or attrs.get("SMS")
