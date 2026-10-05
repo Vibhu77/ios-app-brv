@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View, TextInput, Pressable, Keyboard } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -7,28 +7,30 @@ import {
   KeyboardAwareScrollView,
   KeyboardStickyView,
 } from "react-native-keyboard-controller";
+import { CountryCode } from "libphonenumber-js";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { Button, Loader } from "@/src/components/common";
+import { PhoneField } from "@/src/components/PhoneInput";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
+import { deviceCountry, splitStored, toE164 } from "@/src/lib/phone";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EXT_ID_MAX = 254;
+const IDENTIFIER_HINT = "Fill at least one identifier";
 
-// Shown when a create has no usable identifier. Matches Brevo web behaviour:
-// any of email / SMS / WhatsApp / landline / external ID is enough.
-const IDENTIFIER_MESSAGE = "Add an email, phone number (SMS, WhatsApp or landline) or external ID.";
-
-// Curated field set (Brevo attribute name -> UI). ext_id is TOP-LEVEL.
-const FIELDS = [
-  { key: "FIRSTNAME", label: "First name", keyboardType: "default" as const, autoCapitalize: "words" as const },
-  { key: "LASTNAME", label: "Last name", keyboardType: "default" as const, autoCapitalize: "words" as const },
-  { key: "SMS", label: "SMS (phone)", keyboardType: "phone-pad" as const, autoCapitalize: "none" as const },
-  { key: "WHATSAPP", label: "WhatsApp", keyboardType: "phone-pad" as const, autoCapitalize: "none" as const },
-  { key: "LANDLINE_NUMBER", label: "Landline", keyboardType: "phone-pad" as const, autoCapitalize: "none" as const },
-];
+const PHONE_KEYS = ["SMS", "WHATSAPP", "LANDLINE_NUMBER"] as const;
+type PhoneKey = (typeof PHONE_KEYS)[number];
+type Phone = { country: CountryCode; national: string };
 type FieldErrors = Partial<Record<string, string>>;
+
+const PHONE_META: Record<PhoneKey, string> = {
+  SMS: "SMS (phone)",
+  WHATSAPP: "WhatsApp",
+  LANDLINE_NUMBER: "Landline",
+};
 
 export default function ContactForm() {
   const insets = useSafeAreaInsets();
@@ -37,22 +39,27 @@ export default function ContactForm() {
   const toast = useToast();
   const params = useLocalSearchParams<{ id?: string }>();
   const isEdit = !!params.id;
+  const dc = useMemo(() => deviceCountry(), []);
 
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [email, setEmail] = useState("");
   const [extId, setExtId] = useState("");
-  const [values, setValues] = useState<Record<string, string>>({
-    FIRSTNAME: "",
-    LASTNAME: "",
-    SMS: "",
-    WHATSAPP: "",
-    LANDLINE_NUMBER: "",
+  const [names, setNames] = useState({ FIRSTNAME: "", LASTNAME: "" });
+  const [phones, setPhones] = useState<Record<PhoneKey, Phone>>({
+    SMS: { country: dc, national: "" },
+    WHATSAPP: { country: dc, national: "" },
+    LANDLINE_NUMBER: { country: dc, national: "" },
   });
-  // Snapshot of loaded values so edit sends only changed fields.
+  // Snapshots of loaded values so edit sends only changed fields.
   const [initial, setInitial] = useState<Record<string, string>>({});
+  const [initialPhone, setInitialPhone] = useState<Record<PhoneKey, Phone>>({
+    SMS: { country: dc, national: "" },
+    WHATSAPP: { country: dc, national: "" },
+    LANDLINE_NUMBER: { country: dc, national: "" },
+  });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [formError, setFormError] = useState<string | null>(null);
+  const [identifierError, setIdentifierError] = useState(false);
 
   const load = useCallback(async () => {
     if (!isEdit) return;
@@ -71,106 +78,120 @@ export default function ContactForm() {
       };
       setEmail(loaded.email);
       setExtId(loaded.EXT_ID);
-      setValues({
-        FIRSTNAME: loaded.FIRSTNAME,
-        LASTNAME: loaded.LASTNAME,
-        SMS: loaded.SMS,
-        WHATSAPP: loaded.WHATSAPP,
-        LANDLINE_NUMBER: loaded.LANDLINE_NUMBER,
-      });
+      setNames({ FIRSTNAME: loaded.FIRSTNAME, LASTNAME: loaded.LASTNAME });
+      const split = {
+        SMS: splitStored(loaded.SMS, dc),
+        WHATSAPP: splitStored(loaded.WHATSAPP, dc),
+        LANDLINE_NUMBER: splitStored(loaded.LANDLINE_NUMBER, dc),
+      };
+      const ph: Record<PhoneKey, Phone> = {
+        SMS: { country: split.SMS.country, national: split.SMS.national },
+        WHATSAPP: { country: split.WHATSAPP.country, national: split.WHATSAPP.national },
+        LANDLINE_NUMBER: { country: split.LANDLINE_NUMBER.country, national: split.LANDLINE_NUMBER.national },
+      };
+      setPhones(ph);
+      setInitialPhone(ph);
       setInitial(loaded);
     } catch (e: any) {
       toast.show(e?.message || "Failed to load contact", "error");
     } finally {
       setLoading(false);
     }
-  }, [token, isEdit, params.id, toast]);
+  }, [token, isEdit, params.id, toast, dc]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const setVal = (key: string, v: string) => {
-    setValues((prev) => ({ ...prev, [key]: v }));
-    setFieldErrors((prev) => ({ ...prev, [key]: undefined }));
+  const clearErr = (key: string) => {
+    setFieldErrors((p) => ({ ...p, [key]: undefined }));
+    setIdentifierError(false);
+  };
+  const setName = (key: "FIRSTNAME" | "LASTNAME", v: string) => setNames((p) => ({ ...p, [key]: v }));
+  const setPhoneCountry = (key: PhoneKey, country: CountryCode) =>
+    setPhones((p) => ({ ...p, [key]: { ...p[key], country } }));
+  const setPhoneNational = (key: PhoneKey, national: string) => {
+    setPhones((p) => ({ ...p, [key]: { ...p[key], national } }));
+    clearErr(key);
   };
 
-  const currentVal = (key: string) => (key === "EXT_ID" ? extId : key === "email" ? email : values[key]) || "";
-
-  // Normalisers
-  const normPhone = (v: string) => {
-    const t = v.trim();
-    const hasPlus = t.startsWith("+");
-    const rest = t.replace(/[^+\d\s]/g, "");
-    return hasPlus ? "+" + rest.slice(1).replace(/[^\d\s]/g, "") : rest;
-  };
-  const normWa = (v: string) => v.replace(/\D/g, "");
-
-  const needsCountryCode = (v: string) => {
-    const d = v.replace(/\D/g, "");
-    return !(v.trim().startsWith("+") || d.length >= 11);
-  };
-
-  // At-least-one-identifier rule (create only): email, SMS, WhatsApp,
-  // landline or external ID — same as Brevo web.
-  const hasIdentifier = [email, values.SMS, values.WHATSAPP, values.LANDLINE_NUMBER, extId].some(
-    (v) => (v || "").trim() !== ""
-  );
-  const canSave = isEdit || hasIdentifier;
+  const phoneChanged = (key: PhoneKey) =>
+    phones[key].country !== initialPhone[key].country ||
+    phones[key].national.trim() !== initialPhone[key].national.trim();
 
   const onSave = async () => {
     setFieldErrors({});
-    setFormError(null);
+    setIdentifierError(false);
     Keyboard.dismiss();
 
     const errs: FieldErrors = {};
     if (!isEdit && email.trim() && !EMAIL_RE.test(email.trim())) {
       errs.email = "Enter a valid email address";
     }
-    // Field differs from the loaded value (edit only). Drives "send only
-    // changed fields" and lets a cleared field be sent as "" to clear it.
-    const isChanged = (key: string) => currentVal(key).trim() !== (initial[key] || "").trim();
+    if (extId.length > EXT_ID_MAX) {
+      errs.EXT_ID = `External ID must be ${EXT_ID_MAX} characters or less`;
+    }
 
-    // Country-code checks (inline). On edit only validate a field that's being
-    // changed; a cleared (empty) field skips validation so it can be cleared.
-    for (const key of ["SMS", "LANDLINE_NUMBER"] as const) {
-      if (isEdit && !isChanged(key)) continue;
-      const v = values[key].trim();
-      if (v && needsCountryCode(v)) errs[key] = `${key === "SMS" ? "SMS" : "Landline"} needs a country code (e.g. +91…).`;
-    }
-    if (!isEdit || isChanged("WHATSAPP")) {
-      const wa = values.WHATSAPP.trim();
-      if (wa) {
-        const d = wa.replace(/\D/g, "");
-        if (!d || needsCountryCode(wa)) errs.WHATSAPP = "WhatsApp needs a country code (digits only, e.g. 4915778559164).";
+    // Compute each phone's stored value. Create: all fields. Edit: only fields
+    // the user changed (so untouched legacy values are never re-validated).
+    // A field with only a country code and no number is treated as empty.
+    const outputs: Partial<Record<PhoneKey, string>> = {};
+    for (const key of PHONE_KEYS) {
+      if (isEdit && !phoneChanged(key)) continue;
+      const { country, national } = phones[key];
+      if (!national.trim()) {
+        outputs[key] = "";
+        continue;
       }
+      const { valid, e164 } = toE164(country, national);
+      if (!valid || !e164) {
+        errs[key] = "Enter a valid number";
+        continue;
+      }
+      outputs[key] = key === "WHATSAPP" ? e164.replace("+", "") : e164;
     }
+
     if (Object.keys(errs).length) {
       setFieldErrors(errs);
       return;
     }
-    if (!isEdit && !hasIdentifier) {
-      setFormError(IDENTIFIER_MESSAGE);
-      return;
-    }
 
-    // Build attributes. Create: omit empties. Edit: send only changed fields,
-    // sending "" for a field the user cleared so Brevo clears it too.
-    const attrs: Record<string, string> = {};
-    const putAttr = (key: string, raw: string, norm: (s: string) => string) => {
-      const t = raw.trim();
-      if (!isEdit) {
-        if (t !== "") attrs[key] = norm(t);
+    // Identifier rule (create): email, SMS, WhatsApp, landline or ext_id.
+    if (!isEdit) {
+      const hasId = !!(
+        email.trim() ||
+        extId.trim() ||
+        PHONE_KEYS.some((k) => phones[k].national.trim())
+      );
+      if (!hasId) {
+        setIdentifierError(true);
         return;
       }
-      if (!isChanged(key)) return;
-      attrs[key] = t === "" ? "" : norm(t);
+    }
+
+    // Build payload. Create: omit empties. Edit: send only changed fields,
+    // sending "" to clear a field the user emptied.
+    const attrs: Record<string, string> = {};
+    const putText = (key: "FIRSTNAME" | "LASTNAME", raw: string) => {
+      const t = raw.trim();
+      if (!isEdit) {
+        if (t) attrs[key] = t;
+        return;
+      }
+      if (t === (initial[key] || "").trim()) return;
+      attrs[key] = t;
     };
-    putAttr("FIRSTNAME", values.FIRSTNAME, (s) => s.trim());
-    putAttr("LASTNAME", values.LASTNAME, (s) => s.trim());
-    putAttr("SMS", values.SMS, normPhone);
-    putAttr("LANDLINE_NUMBER", values.LANDLINE_NUMBER, normPhone);
-    putAttr("WHATSAPP", values.WHATSAPP, normWa);
+    putText("FIRSTNAME", names.FIRSTNAME);
+    putText("LASTNAME", names.LASTNAME);
+    for (const key of PHONE_KEYS) {
+      if (isEdit && !phoneChanged(key)) continue;
+      const out = outputs[key] ?? "";
+      if (!isEdit) {
+        if (out) attrs[key] = out;
+      } else {
+        attrs[key] = out; // changed on edit: set new value or "" to clear
+      }
+    }
 
     const payload: any = {};
     if (!isEdit) {
@@ -179,9 +200,7 @@ export default function ContactForm() {
       if (extId.trim()) payload.ext_id = extId.trim();
     } else {
       if (Object.keys(attrs).length) payload.attributes = attrs;
-      // ext_id: send when changed, including "" to clear it.
-      if (isChanged("EXT_ID")) payload.ext_id = extId.trim();
-      // Nothing changed → just close.
+      if (extId.trim() !== (initial.EXT_ID || "").trim()) payload.ext_id = extId.trim();
       if (!payload.attributes && payload.ext_id === undefined) {
         router.back();
         return;
@@ -206,8 +225,6 @@ export default function ContactForm() {
       const msgLower = (msg + " " + (e?.detail?.message || "")).toLowerCase();
       const field = e?.detail?.field as string | undefined;
       const KNOWN = ["SMS", "WHATSAPP", "LANDLINE_NUMBER", "EXT_ID"];
-      // Map Brevo's 400 to the offending field (backend-tagged field first,
-      // then message keywords) for SMS, WhatsApp, Landline and external ID.
       if (status === 400 && field && KNOWN.includes(field)) {
         setFieldErrors({ [field]: msg });
       } else if (status === 400 && msgLower.includes("whatsapp")) {
@@ -225,6 +242,8 @@ export default function ContactForm() {
       setSaving(false);
     }
   };
+
+  const idHint = identifierError ? IDENTIFIER_HINT : undefined;
 
   return (
     <View style={styles.container}>
@@ -246,6 +265,16 @@ export default function ContactForm() {
             contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 120 }}
             showsVerticalScrollIndicator={false}
           >
+            {identifierError ? (
+              <View style={styles.banner} testID="identifier-banner">
+                <Ionicons name="alert-circle" size={20} color={colors.error} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.bannerTitle}>Fill at least one identifier</Text>
+                  <Text style={styles.bannerText}>Email, SMS, WhatsApp, Landline or External ID.</Text>
+                </View>
+              </View>
+            ) : null}
+
             {/* Email (read-only in edit) */}
             <Text style={styles.label}>Email</Text>
             <TextInput
@@ -254,7 +283,7 @@ export default function ContactForm() {
               value={email}
               onChangeText={(v) => {
                 setEmail(v);
-                setFieldErrors((p) => ({ ...p, email: undefined }));
+                clearErr("email");
               }}
               editable={!isEdit}
               placeholder="name@example.com"
@@ -264,39 +293,58 @@ export default function ContactForm() {
               keyboardType="email-address"
             />
             {fieldErrors.email ? <Text style={styles.errorText}>{fieldErrors.email}</Text> : null}
+            {!fieldErrors.email && idHint ? <Text style={styles.hint}>{idHint}</Text> : null}
             {isEdit ? <Text style={styles.hint}>Email cannot be changed here.</Text> : null}
 
-            {/* Names + phones */}
-            {FIELDS.map((f) => (
-              <View key={f.key}>
-                <Text style={styles.label}>{f.label}</Text>
+            {/* Names */}
+            {(["FIRSTNAME", "LASTNAME"] as const).map((key) => (
+              <View key={key}>
+                <Text style={styles.label}>{key === "FIRSTNAME" ? "First name" : "Last name"}</Text>
                 <TextInput
-                  testID={`form-attr-${f.key}`}
-                  style={[styles.input, fieldErrors[f.key] && styles.inputError]}
-                  value={values[f.key]}
-                  onChangeText={(v) => setVal(f.key, v)}
-                  placeholder={
-                    f.keyboardType === "phone-pad" ? "+91 9788824675" : `Enter ${f.label.toLowerCase()}`
-                  }
+                  testID={`form-attr-${key}`}
+                  style={styles.input}
+                  value={names[key]}
+                  onChangeText={(v) => setName(key, v)}
+                  placeholder={`Enter ${key === "FIRSTNAME" ? "first name" : "last name"}`}
                   placeholderTextColor={colors.onSurfaceTertiary}
-                  keyboardType={f.keyboardType}
-                  autoCapitalize={f.autoCapitalize}
+                  autoCapitalize="words"
                   autoCorrect={false}
                 />
-                {fieldErrors[f.key] ? <Text style={styles.errorText}>{fieldErrors[f.key]}</Text> : null}
               </View>
             ))}
 
-            {/* EXT_ID — top-level, alphanumeric */}
-            <Text style={styles.label}>External ID</Text>
+            {/* Phones with country picker */}
+            {PHONE_KEYS.map((key) => (
+              <PhoneField
+                key={key}
+                label={PHONE_META[key]}
+                country={phones[key].country}
+                national={phones[key].national}
+                onChangeCountry={(c) => setPhoneCountry(key, c)}
+                onChangeNational={(v) => setPhoneNational(key, v)}
+                error={fieldErrors[key]}
+                hint={idHint}
+                placeholder="9788824675"
+                testIDPrefix={`form-phone-${key}`}
+              />
+            ))}
+
+            {/* External ID — top-level, max 254 */}
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>External ID</Text>
+              <Text style={styles.counter}>
+                {extId.length}/{EXT_ID_MAX}
+              </Text>
+            </View>
             <TextInput
               testID="form-attr-EXT_ID"
               style={[styles.input, fieldErrors.EXT_ID && styles.inputError]}
               value={extId}
               onChangeText={(v) => {
                 setExtId(v);
-                setFieldErrors((p) => ({ ...p, EXT_ID: undefined }));
+                clearErr("EXT_ID");
               }}
+              maxLength={EXT_ID_MAX}
               placeholder="user_12345"
               placeholderTextColor={colors.onSurfaceTertiary}
               autoCapitalize="none"
@@ -304,14 +352,7 @@ export default function ContactForm() {
               keyboardType="default"
             />
             {fieldErrors.EXT_ID ? <Text style={styles.errorText}>{fieldErrors.EXT_ID}</Text> : null}
-
-            {/* Form-level identifier message (create only) */}
-            {!isEdit && !canSave ? (
-              <Text style={styles.formError} testID="form-identifier-error">
-                {IDENTIFIER_MESSAGE}
-              </Text>
-            ) : null}
-            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+            {!fieldErrors.EXT_ID && idHint ? <Text style={styles.hint}>{idHint}</Text> : null}
           </KeyboardAwareScrollView>
 
           <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
@@ -323,7 +364,7 @@ export default function ContactForm() {
                 icon="checkmark"
                 onPress={onSave}
                 loading={saving}
-                disabled={!canSave}
+                disabled={saving}
                 testID="save-contact-button"
               />
             </View>
@@ -347,6 +388,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface },
   label: { fontSize: font.base, fontWeight: "700", color: colors.onSurface, marginBottom: spacing.sm, marginTop: spacing.lg },
+  labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  counter: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.lg },
   input: {
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.md,
@@ -361,7 +404,17 @@ const styles = StyleSheet.create({
   inputError: { borderColor: colors.error },
   errorText: { color: colors.error, fontSize: font.sm, marginTop: spacing.xs },
   hint: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.xs },
-  formError: { color: colors.error, fontSize: font.sm, marginTop: spacing.xl, lineHeight: 18 },
+  banner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: colors.errorBg,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  bannerTitle: { fontSize: font.base, fontWeight: "700", color: colors.error },
+  bannerText: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
