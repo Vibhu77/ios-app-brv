@@ -16,6 +16,10 @@ import { cache, cacheKeys } from "@/src/lib/cache";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Shown when a create has no usable identifier. Matches Brevo web behaviour:
+// any of email / SMS / WhatsApp / landline / external ID is enough.
+const IDENTIFIER_MESSAGE = "Add an email, phone number (SMS, WhatsApp or landline) or external ID.";
+
 // Curated field set (Brevo attribute name -> UI). ext_id is TOP-LEVEL.
 const FIELDS = [
   { key: "FIRSTNAME", label: "First name", keyboardType: "default" as const, autoCapitalize: "words" as const },
@@ -107,8 +111,11 @@ export default function ContactForm() {
     return !(v.trim().startsWith("+") || d.length >= 11);
   };
 
-  // At-least-one-identifier rule (create only).
-  const hasIdentifier = [email, values.SMS, extId].some((v) => (v || "").trim() !== "");
+  // At-least-one-identifier rule (create only): email, SMS, WhatsApp,
+  // landline or external ID — same as Brevo web.
+  const hasIdentifier = [email, values.SMS, values.WHATSAPP, values.LANDLINE_NUMBER, extId].some(
+    (v) => (v || "").trim() !== ""
+  );
   const canSave = isEdit || hasIdentifier;
 
   const onSave = async () => {
@@ -120,51 +127,62 @@ export default function ContactForm() {
     if (!isEdit && email.trim() && !EMAIL_RE.test(email.trim())) {
       errs.email = "Enter a valid email address";
     }
-    // Country-code checks (inline, do not send invalid)
+    // Field differs from the loaded value (edit only). Drives "send only
+    // changed fields" and lets a cleared field be sent as "" to clear it.
+    const isChanged = (key: string) => currentVal(key).trim() !== (initial[key] || "").trim();
+
+    // Country-code checks (inline). On edit only validate a field that's being
+    // changed; a cleared (empty) field skips validation so it can be cleared.
     for (const key of ["SMS", "LANDLINE_NUMBER"] as const) {
+      if (isEdit && !isChanged(key)) continue;
       const v = values[key].trim();
       if (v && needsCountryCode(v)) errs[key] = `${key === "SMS" ? "SMS" : "Landline"} needs a country code (e.g. +91…).`;
     }
-    const wa = values.WHATSAPP.trim();
-    if (wa) {
-      const d = wa.replace(/\D/g, "");
-      if (!d || needsCountryCode(wa)) errs.WHATSAPP = "WhatsApp needs a country code (digits only, e.g. 4915778559164).";
+    if (!isEdit || isChanged("WHATSAPP")) {
+      const wa = values.WHATSAPP.trim();
+      if (wa) {
+        const d = wa.replace(/\D/g, "");
+        if (!d || needsCountryCode(wa)) errs.WHATSAPP = "WhatsApp needs a country code (digits only, e.g. 4915778559164).";
+      }
     }
     if (Object.keys(errs).length) {
       setFieldErrors(errs);
       return;
     }
     if (!isEdit && !hasIdentifier) {
-      setFormError("Add an email, SMS number or external ID to create this contact.");
+      setFormError(IDENTIFIER_MESSAGE);
       return;
     }
 
-    // Build payload — omit empties; on edit send only changed fields.
-    const changed = (key: string) => isEdit && currentVal(key).trim() === (initial[key] || "").trim();
+    // Build attributes. Create: omit empties. Edit: send only changed fields,
+    // sending "" for a field the user cleared so Brevo clears it too.
     const attrs: Record<string, string> = {};
-    const put = (key: string, raw: string, norm: (s: string) => string) => {
+    const putAttr = (key: string, raw: string, norm: (s: string) => string) => {
       const t = raw.trim();
-      if (t === "") return;
-      if (changed(key)) return;
-      attrs[key] = norm(t);
+      if (!isEdit) {
+        if (t !== "") attrs[key] = norm(t);
+        return;
+      }
+      if (!isChanged(key)) return;
+      attrs[key] = t === "" ? "" : norm(t);
     };
-    put("FIRSTNAME", values.FIRSTNAME, (s) => s.trim());
-    put("LASTNAME", values.LASTNAME, (s) => s.trim());
-    put("SMS", values.SMS, normPhone);
-    put("LANDLINE_NUMBER", values.LANDLINE_NUMBER, normPhone);
-    put("WHATSAPP", values.WHATSAPP, normWa);
+    putAttr("FIRSTNAME", values.FIRSTNAME, (s) => s.trim());
+    putAttr("LASTNAME", values.LASTNAME, (s) => s.trim());
+    putAttr("SMS", values.SMS, normPhone);
+    putAttr("LANDLINE_NUMBER", values.LANDLINE_NUMBER, normPhone);
+    putAttr("WHATSAPP", values.WHATSAPP, normWa);
 
     const payload: any = {};
     if (!isEdit) {
       if (email.trim()) payload.email = email.trim();
       if (Object.keys(attrs).length) payload.attributes = attrs;
       if (extId.trim()) payload.ext_id = extId.trim();
-      payload.updateEnabled = true;
     } else {
       if (Object.keys(attrs).length) payload.attributes = attrs;
-      if (!changed("EXT_ID") && extId.trim()) payload.ext_id = extId.trim();
-      // Skip if nothing actually changed on edit.
-      if (!Object.keys(attrs).length && !payload.ext_id) {
+      // ext_id: send when changed, including "" to clear it.
+      if (isChanged("EXT_ID")) payload.ext_id = extId.trim();
+      // Nothing changed → just close.
+      if (!payload.attributes && payload.ext_id === undefined) {
         router.back();
         return;
       }
@@ -186,13 +204,20 @@ export default function ContactForm() {
       const status = e?.upstreamStatus || e?.status;
       const msg: string = e?.message || "Failed to save contact";
       const msgLower = (msg + " " + (e?.detail?.message || "")).toLowerCase();
-      // Map known Brevo errors to the offending field.
-      if (status === 400 && (e?.detail?.field === "SMS" || msgLower.includes("sms"))) {
+      const field = e?.detail?.field as string | undefined;
+      const KNOWN = ["SMS", "WHATSAPP", "LANDLINE_NUMBER", "EXT_ID"];
+      // Map Brevo's 400 to the offending field (backend-tagged field first,
+      // then message keywords) for SMS, WhatsApp, Landline and external ID.
+      if (status === 400 && field && KNOWN.includes(field)) {
+        setFieldErrors({ [field]: msg });
+      } else if (status === 400 && msgLower.includes("whatsapp")) {
+        setFieldErrors({ WHATSAPP: msg });
+      } else if (status === 400 && msgLower.includes("landline")) {
+        setFieldErrors({ LANDLINE_NUMBER: msg });
+      } else if (status === 400 && msgLower.includes("sms")) {
         setFieldErrors({ SMS: msg });
-      } else if (status === 400 && (e?.detail?.field === "EXT_ID" || msgLower.includes("ext_id") || msgLower.includes("external"))) {
+      } else if (status === 400 && (msgLower.includes("ext_id") || msgLower.includes("external"))) {
         setFieldErrors({ EXT_ID: msg });
-      } else if (status === 400 && (e?.detail?.field === "WHATSAPP" || e?.detail?.field === "LANDLINE_NUMBER")) {
-        setFieldErrors({ [e.detail.field]: msg });
       } else {
         toast.show(msg, "error");
       }
@@ -283,7 +308,7 @@ export default function ContactForm() {
             {/* Form-level identifier message (create only) */}
             {!isEdit && !canSave ? (
               <Text style={styles.formError} testID="form-identifier-error">
-                Add an email, SMS number or external ID to create this contact.
+                {IDENTIFIER_MESSAGE}
               </Text>
             ) : null}
             {formError ? <Text style={styles.formError}>{formError}</Text> : null}

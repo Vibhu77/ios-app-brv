@@ -565,44 +565,67 @@ def _build_contact_payload(raw: dict, is_create: bool):
     errors: list = []
     attrs_in = raw.get("attributes") or {}
     attrs: dict = {}
+    # On UPDATE an explicitly-provided empty string clears the attribute in
+    # Brevo; on CREATE we simply omit empties. A key absent from attrs_in is
+    # left untouched.
     for k in ("FIRSTNAME", "LASTNAME"):
-        v = attrs_in.get(k)
-        if isinstance(v, str) and v.strip():
+        if k not in attrs_in or not isinstance(attrs_in.get(k), str):
+            continue
+        v = attrs_in[k]
+        if v.strip():
             attrs[k] = v.strip()
+        elif not is_create:
+            attrs[k] = ""
     for k in ("SMS", "LANDLINE_NUMBER"):
-        v = attrs_in.get(k)
-        if isinstance(v, str) and v.strip():
+        if k not in attrs_in or not isinstance(attrs_in.get(k), str):
+            continue
+        v = attrs_in[k]
+        if v.strip():
             cleaned = _clean_phone(v)
             digits = cleaned.lstrip("+")
             if not cleaned.startswith("+") and len(digits) < 11:
                 errors.append({"field": k, "message": f"{k} needs a country code (e.g. +91…)."})
             else:
                 attrs[k] = cleaned
-    wa = attrs_in.get("WHATSAPP")
-    if isinstance(wa, str) and wa.strip():
-        digits = "".join(ch for ch in wa if ch.isdigit())
-        if not digits or (not wa.strip().startswith("+") and len(digits) < 11):
-            errors.append({"field": "WHATSAPP", "message": "WHATSAPP needs a country code (digits only, e.g. 4915778559164)."})
-        else:
-            attrs["WHATSAPP"] = digits
+        elif not is_create:
+            attrs[k] = ""
+    if "WHATSAPP" in attrs_in and isinstance(attrs_in.get("WHATSAPP"), str):
+        wa = attrs_in["WHATSAPP"]
+        if wa.strip():
+            digits = "".join(ch for ch in wa if ch.isdigit())
+            if not digits or (not wa.strip().startswith("+") and len(digits) < 11):
+                errors.append({"field": "WHATSAPP", "message": "WHATSAPP needs a country code (digits only, e.g. 4915778559164)."})
+            else:
+                attrs["WHATSAPP"] = digits
+        elif not is_create:
+            attrs["WHATSAPP"] = ""
 
     payload: dict = {}
     email = raw.get("email")
     if isinstance(email, str) and email.strip():
         payload["email"] = email.strip()
     ext = raw.get("ext_id")
-    if isinstance(ext, str) and ext.strip():
-        payload["ext_id"] = ext.strip()  # top-level sibling of attributes
+    if isinstance(ext, str):
+        if ext.strip():
+            payload["ext_id"] = ext.strip()  # top-level sibling of attributes
+        elif not is_create:
+            payload["ext_id"] = ""  # clear external ID on update
     if attrs:
         payload["attributes"] = attrs
 
     if is_create:
-        # At least one identifier: email, SMS, or ext_id. Names alone cannot
-        # create a contact; WhatsApp/Landline don't qualify (pending decision).
-        if not (payload.get("email") or attrs.get("SMS") or payload.get("ext_id")):
+        # At least one identifier: email, SMS, WhatsApp, landline or ext_id —
+        # same as Brevo web. Names alone cannot create a contact.
+        if not (
+            payload.get("email")
+            or attrs.get("SMS")
+            or attrs.get("WHATSAPP")
+            or attrs.get("LANDLINE_NUMBER")
+            or payload.get("ext_id")
+        ):
             raise HTTPException(
                 status_code=400,
-                detail={"message": "Add an email, SMS number or external ID to create this contact."},
+                detail={"message": "Add an email, phone number (SMS, WhatsApp or landline) or external ID."},
             )
     return payload, errors
 
