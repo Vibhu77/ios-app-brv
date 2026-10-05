@@ -1,5 +1,5 @@
 import React from "react";
-import { Platform, StyleSheet } from "react-native";
+import { Platform, StyleSheet, View, Text } from "react-native";
 import { Tabs, Redirect } from "expo-router";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,11 +8,12 @@ import { colors } from "@/src/theme";
 import { useBrevo } from "@/src/context/BrevoContext";
 
 export default function TabsLayout() {
-  const { token, loading } = useBrevo();
+  const { token, loading, isDemo } = useBrevo();
   const insets = useSafeAreaInsets();
   if (!loading && !token) return <Redirect href="/login" />;
 
   return (
+    <View style={styles.root}>
     <Tabs
       initialRouteName="campaigns"
       screenOptions={{
@@ -58,5 +59,33 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+      {isDemo ? (
+        <View
+          pointerEvents="none"
+          style={[styles.demoPill, { bottom: 56 + insets.bottom + 10 }]}
+          testID="demo-data-pill"
+        >
+          <View style={styles.demoDot} />
+          <Text style={styles.demoText}>Demo data</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  demoPill: {
+    position: "absolute",
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.onSurface,
+  },
+  demoDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.warning },
+  demoText: { color: colors.surface, fontSize: 12, fontWeight: "700" },
+});

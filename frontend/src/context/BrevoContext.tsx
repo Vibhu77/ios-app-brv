@@ -4,6 +4,7 @@ import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import { storage } from "@/src/utils/storage";
 import { brevo, LOGIN_URL, exchangeOAuthCode, Account, setUnauthorizedHandler } from "@/src/lib/brevo";
+import { DEMO_MODE, DEMO_TOKEN } from "@/src/lib/demo-mode";
 import { createPkce } from "@/src/lib/pkce";
 import { cache } from "@/src/lib/cache";
 
@@ -20,9 +21,11 @@ type Ctx = {
   loading: boolean;
   isConnected: boolean;
   login: () => Promise<{ ok: boolean; error?: string }>;
+  loginDemo: () => Promise<void>;
   logout: () => Promise<void>;
   setSession: (token: string) => Promise<void>;
   exchangeCode: (code: string) => Promise<boolean>;
+  isDemo: boolean;
 };
 
 const BrevoContext = createContext<Ctx>({} as Ctx);
@@ -174,6 +177,11 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
     }
   }, [exchangeCode]);
 
+  // DEMO DATA mode: start a sample session with no backend/OAuth round-trip.
+  const loginDemo = useCallback(async () => {
+    await setSession(DEMO_TOKEN);
+  }, [setSession]);
+
   const logout = useCallback(async () => {
     try {
       if (token) await brevo.logout(token);
@@ -188,7 +196,7 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <BrevoContext.Provider
-      value={{ token, account, loading, isConnected: !!token, login, logout, setSession, exchangeCode }}
+      value={{ token, account, loading, isConnected: !!token, login, loginDemo, logout, setSession, exchangeCode, isDemo: DEMO_MODE }}
     >
       {children}
     </BrevoContext.Provider>

@@ -36,6 +36,7 @@ export default function ContactsScreen() {
   const [hasMore, setHasMore] = useState(cached?.hasMore ?? true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState(false);
   const [query, setQuery] = useState("");
 
   const scrollY = useSharedValue(0);
@@ -74,6 +75,7 @@ export default function ContactsScreen() {
   const loadMore = useCallback(async () => {
     if (!token || loadingMore || !hasMore || query.trim()) return;
     setLoadingMore(true);
+    setLoadMoreError(false);
     try {
       const res = await brevo.listContacts(token, contacts.length, pageSize);
       const list = res?.contacts || [];
@@ -88,7 +90,9 @@ export default function ContactsScreen() {
       setHasMore(more);
       cache.set<ContactsCache>(cacheKeys.contacts, { list: merged, total: nextTotal, hasMore: more });
     } catch {
-      setHasMore(false);
+      // Keep the contacts already loaded (and their count) and let the user
+      // retry the failed page from the list footer.
+      setLoadMoreError(true);
     } finally {
       setLoadingMore(false);
     }
@@ -249,10 +253,17 @@ export default function ContactsScreen() {
           ListHeaderComponent={listHeader}
           onScroll={onScroll}
           scrollEventThrottle={16}
-          onEndReached={loadMore}
+          onEndReached={() => {
+            if (!loadMoreError) loadMore();
+          }}
           onEndReachedThreshold={0.4}
           ListFooterComponent={
-            loadingMore && !searching ? (
+            searching ? null : loadMoreError ? (
+              <Pressable style={styles.footerRetry} onPress={loadMore} testID="contacts-loadmore-retry">
+                <Ionicons name="warning-outline" size={16} color={colors.error} />
+                <Text style={styles.footerRetryText}>{"Couldn't load more contacts — Retry"}</Text>
+              </Pressable>
+            ) : loadingMore ? (
               <View style={styles.footer}>
                 <ActivityIndicator color={colors.brandPrimary} />
               </View>
@@ -359,6 +370,14 @@ const styles = StyleSheet.create({
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 72 },
   skRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
   footer: { paddingVertical: spacing.lg, alignItems: "center" },
+  footerRetry: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.lg,
+  },
+  footerRetryText: { fontSize: font.base, color: colors.error, fontWeight: "600" },
   hintWrap: { paddingTop: spacing.xxl, paddingHorizontal: spacing.xl, alignItems: "center" },
   hint: { fontSize: font.base, color: colors.onSurfaceTertiary, textAlign: "center" },
   fab: {

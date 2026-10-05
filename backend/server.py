@@ -505,19 +505,14 @@ async def list_contacts(
 ):
     # Single-page fetch for fast initial load + infinite scroll. The client
     # drives pagination (offset += limit) and stops when a page returns fewer
-    # than `limit` items. Keeps per-page 5xx resilience: a failing page yields
-    # an empty page instead of blanking the screen.
+    # than `limit` items.
     # NOTE: Brevo's /v3/contacts 500s at high limits for some accounts; we cap
     # at the user-selectable page size, max 50 (the confirmed 500 is at ~100).
+    # If a page fails we surface the error (keeping Brevo's status + details)
+    # rather than returning an empty page, which made the header show 0.
     limit = max(1, min(limit, 50))
     params = {"limit": limit, "offset": max(0, offset), "sort": "desc"}
-    try:
-        data = await brevo_authed("GET", "/contacts", sess, params=params)
-    except HTTPException as e:
-        if e.status_code < 500:
-            raise
-        logger.warning("Contacts page skipped offset=%s: %s", offset, getattr(e, "detail", e))
-        return {"count": 0, "contacts": []}
+    data = await brevo_authed("GET", "/contacts", sess, params=params)
     return {"count": data.get("count"), "contacts": data.get("contacts") or []}
 
 

@@ -5,7 +5,7 @@ import { Redirect } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { colors, spacing, font, fonts, radius, chartColors } from "@/src/theme";
-import { PrimaryButton, IconChip } from "@/src/components/common";
+import { PrimaryButton, IconChip, Button } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 
@@ -60,7 +60,7 @@ function ProductPreview({ compact }: { compact: boolean }) {
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const { login, isConnected } = useBrevo();
+  const { login, loginDemo, isConnected, isDemo } = useBrevo();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
 
@@ -124,6 +124,16 @@ export default function LoginScreen() {
           loading={busy}
           testID="login-brevo-button"
         />
+        {isDemo ? (
+          <Button
+            variant="secondary"
+            fullWidth
+            title="Use sample data"
+            icon="flask-outline"
+            onPress={loginDemo}
+            testID="login-demo-button"
+          />
+        ) : null}
         <Text style={styles.legal}>
           Sign in securely with Brevo — we never see your password.
         </Text>
