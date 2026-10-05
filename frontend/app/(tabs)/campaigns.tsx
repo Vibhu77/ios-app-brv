@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, ScrollView } from "react-native";
+import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, ScrollView, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "expo-router/js-tabs";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
@@ -33,6 +33,15 @@ const CHIP_DEFS: ChipDef[] = [
   { label: "Other", value: OTHER },
 ];
 
+// Client-side sort options (no new API calls).
+type SortKey = "newest" | "oldest" | "name" | "open";
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: "newest", label: "Newest" },
+  { key: "oldest", label: "Oldest" },
+  { key: "name", label: "Name A–Z" },
+  { key: "open", label: "Highest open rate" },
+];
+
 export default function CampaignsScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
@@ -45,6 +54,8 @@ export default function CampaignsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [activeStatus, setActiveStatus] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortKey>("newest");
+  const [sortOpen, setSortOpen] = useState(false);
 
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((e) => {
@@ -105,10 +116,13 @@ export default function CampaignsScreen() {
   // All is always shown; other chips appear only when they have matches.
   const chips = CHIP_DEFS.filter((c) => c.value === null || chipCount(c.value) > 0);
 
-  // --- Visible list = status filter + client-side name search ---
+  // --- Visible list = status chip + search (name/subject/ID) + sort ---
+  // All client-side over the already-loaded list; no new API calls. The
+  // summary card above is intentionally computed from the full `campaigns`
+  // list, so searching/sorting never changes its numbers.
   const visibleCampaigns = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return campaigns.filter((c) => {
+    const q = query.trim().toLowerCase().replace(/^#/, "");
+    const filtered = campaigns.filter((c) => {
       if (activeStatus !== null) {
         if (activeStatus === OTHER) {
           if (!OTHER_STATUSES.includes(c.status || "")) return false;
@@ -116,30 +130,72 @@ export default function CampaignsScreen() {
           return false;
         }
       }
-      if (q && !(c.name || "").toLowerCase().includes(q)) return false;
+      if (q) {
+        const name = (c.name || "").toLowerCase();
+        const subject = (c.subject || "").toLowerCase();
+        const id = String(c.id).toLowerCase();
+        if (!(name.includes(q) || subject.includes(q) || id.includes(q))) return false;
+      }
       return true;
     });
-  }, [campaigns, activeStatus, query]);
+
+    const ts = (c: Campaign) => {
+      const d = c.sentDate || c.createdAt;
+      const t = d ? Date.parse(d) : NaN;
+      return isNaN(t) ? 0 : t;
+    };
+    const openRate = (c: Campaign) => {
+      const g = c.statistics?.globalStats;
+      const del = g?.delivered || 0;
+      return del > 0 ? (g?.uniqueViews || 0) / del : -1;
+    };
+    const sorted = [...filtered];
+    switch (sort) {
+      case "oldest":
+        sorted.sort((a, b) => ts(a) - ts(b));
+        break;
+      case "name":
+        sorted.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        break;
+      case "open":
+        sorted.sort((a, b) => openRate(b) - openRate(a));
+        break;
+      default: // newest
+        sorted.sort((a, b) => ts(b) - ts(a));
+    }
+    return sorted;
+  }, [campaigns, activeStatus, query, sort]);
 
   const searchBox = (
-    <View style={styles.searchBox}>
-      <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
-      <TextInput
-        testID="campaigns-search-input"
-        style={styles.searchInput}
-        placeholder="Search campaigns"
-        placeholderTextColor={colors.onSurfaceTertiary}
-        value={query}
-        onChangeText={setQuery}
-        autoCapitalize="none"
-        autoCorrect={false}
-        returnKeyType="search"
-      />
-      {query.length > 0 ? (
-        <Pressable onPress={() => setQuery("")} hitSlop={10} testID="campaigns-search-clear">
-          <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
-        </Pressable>
-      ) : null}
+    <View style={styles.controlsRow}>
+      <View style={styles.searchBox}>
+        <Ionicons name="search" size={18} color={colors.onSurfaceTertiary} />
+        <TextInput
+          testID="campaigns-search-input"
+          style={styles.searchInput}
+          placeholder="Search name, subject or ID"
+          placeholderTextColor={colors.onSurfaceTertiary}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {query.length > 0 ? (
+          <Pressable onPress={() => setQuery("")} hitSlop={10} testID="campaigns-search-clear">
+            <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        ) : null}
+      </View>
+      <Pressable
+        style={styles.sortBtn}
+        onPress={() => setSortOpen(true)}
+        testID="campaigns-sort-button"
+        accessibilityRole="button"
+        accessibilityLabel={`Sort by ${SORTS.find((s) => s.key === sort)?.label}`}
+      >
+        <Ionicons name="swap-vertical" size={18} color={colors.onSurface} />
+      </Pressable>
     </View>
   );
 
@@ -172,7 +228,7 @@ export default function CampaignsScreen() {
 
   const summaryCard = (
     <View style={styles.summary} testID="campaigns-summary">
-      <Text style={styles.summaryEyebrow}>TOTAL SENT · LAST 30 DAYS</Text>
+      <Text style={styles.summaryEyebrow}>TOTAL SENT · ALL CAMPAIGNS</Text>
       <Text style={styles.summaryFigure}>{nf(totalSent)}</Text>
       <View style={styles.summaryDivider} />
       <View style={styles.summaryStats}>
@@ -253,6 +309,7 @@ export default function CampaignsScreen() {
         <Animated.FlatList
           testID="campaigns-list"
           data={visibleCampaigns}
+          extraData={sort}
           keyExtractor={(c: Campaign) => String(c.id)}
           renderItem={renderItem}
           ListHeaderComponent={listHeader}
@@ -303,6 +360,28 @@ export default function CampaignsScreen() {
         />
       )}
       <StickyHeader scrollY={scrollY} title="Campaigns" />
+
+      <Modal visible={sortOpen} transparent animationType="fade" onRequestClose={() => setSortOpen(false)}>
+        <Pressable style={styles.sortBackdrop} onPress={() => setSortOpen(false)}>
+          <Pressable style={[styles.sortSheet, { paddingBottom: insets.bottom + spacing.md }]} onPress={() => {}}>
+            <Text style={styles.sortTitle}>Sort by</Text>
+            {SORTS.map((s) => (
+              <Pressable
+                key={s.key}
+                style={styles.sortOption}
+                onPress={() => {
+                  setSort(s.key);
+                  setSortOpen(false);
+                }}
+                testID={`sort-option-${s.key}`}
+              >
+                <Text style={[styles.sortOptionText, sort === s.key && styles.sortOptionActive]}>{s.label}</Text>
+                {sort === s.key ? <Ionicons name="checkmark" size={18} color={colors.brandPrimary} /> : null}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -334,8 +413,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     marginBottom: spacing.sm,
   },
-  // --- Search ---
+  // --- Search + sort ---
+  controlsRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.md },
   searchBox: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
@@ -343,9 +424,37 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     height: 40,
-    marginBottom: spacing.md,
   },
   searchInput: { flex: 1, fontSize: font.base, color: colors.onSurface, paddingVertical: 0 },
+  sortBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sortBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  sortSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+  },
+  sortTitle: { fontSize: font.sm, fontWeight: "700", color: colors.onSurfaceTertiary, letterSpacing: 0.5, marginBottom: spacing.sm },
+  sortOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.divider,
+  },
+  sortOptionText: { fontSize: font.lg, color: colors.onSurface },
+  sortOptionActive: { fontWeight: "700", color: colors.brandPrimary },
   // --- Filter chips ---
   chipsRow: { marginBottom: spacing.md, marginHorizontal: -spacing.lg },
   chipsContent: { paddingHorizontal: spacing.lg, gap: spacing.sm },
