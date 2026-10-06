@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { colors, spacing, font, fonts, radius, chartColors } from "@/src/theme";
 import { PrimaryButton, IconChip, Button } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
+import { DEMO_MODE } from "@/src/lib/demo-mode";
 import { useToast } from "@/src/context/ToastContext";
 
 const BREVO_LOGO = require("@/assets/brevo-logo-white.png");
@@ -60,7 +61,7 @@ function ProductPreview({ compact }: { compact: boolean }) {
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const { login, loginDemo, isConnected, isDemo } = useBrevo();
+  const { login, loginDemo, isConnected } = useBrevo();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
 
@@ -124,7 +125,7 @@ export default function LoginScreen() {
           loading={busy}
           testID="login-brevo-button"
         />
-        {isDemo ? (
+        {DEMO_MODE ? (
           <Button
             variant="secondary"
             fullWidth

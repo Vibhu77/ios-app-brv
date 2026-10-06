@@ -1,7 +1,7 @@
 // Client for our FastAPI backend. Auth is via a session token issued after Brevo OAuth.
 // The session token is sent as `Authorization: Bearer <token>` on every request.
 import { diagnostics } from "@/src/lib/diagnostics";
-import { DEMO_MODE } from "@/src/lib/demo-mode";
+import { DEMO_MODE, DEMO_TOKEN } from "@/src/lib/demo-mode";
 import { demoBrevo } from "@/src/demo/client";
 
 const API = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
@@ -157,7 +157,16 @@ const realBrevo = {
     }),
 };
 
-// DEMO DATA mode: swap in the in-memory fake. This is a static, dev-only switch
-// (see demo-mode.ts), so a production build always uses the real backend client
-// and never bundles a code path that calls it in demo.
-export const brevo = DEMO_MODE ? (demoBrevo as unknown as typeof realBrevo) : realBrevo;
+// DEMO DATA mode: choose the client PER CALL based on the session token, so a
+// real Brevo sign-in always hits the real backend even while the dev flag is on.
+// Only the sample session (token === DEMO_TOKEN) is served the in-memory fake.
+const isDemoToken = (t?: string) => DEMO_MODE && t === DEMO_TOKEN;
+export const brevo = Object.fromEntries(
+  Object.entries(realBrevo).map(([name, fn]) => [
+    name,
+    (token: string, ...args: any[]) =>
+      isDemoToken(token)
+        ? (demoBrevo as any)[name](token, ...args)
+        : (fn as any)(token, ...args),
+  ])
+) as typeof realBrevo;

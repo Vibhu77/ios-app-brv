@@ -196,7 +196,7 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <BrevoContext.Provider
-      value={{ token, account, loading, isConnected: !!token, login, loginDemo, logout, setSession, exchangeCode, isDemo: DEMO_MODE }}
+      value={{ token, account, loading, isConnected: !!token, login, loginDemo, logout, setSession, exchangeCode, isDemo: DEMO_MODE && token === DEMO_TOKEN }}
     >
       {children}
     </BrevoContext.Provider>
