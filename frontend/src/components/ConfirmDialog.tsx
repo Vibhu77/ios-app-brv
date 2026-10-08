@@ -15,6 +15,7 @@ export function ConfirmDialog({
   cancelLabel,
   destructive,
   busy,
+  errorText,
   onConfirm,
   onCancel,
   testID,
@@ -27,6 +28,7 @@ export function ConfirmDialog({
   cancelLabel: string;
   destructive?: boolean;
   busy?: boolean;
+  errorText?: string;
   onConfirm: () => void;
   onCancel: () => void;
   testID?: string;
@@ -42,6 +44,11 @@ export function ConfirmDialog({
           ) : null}
           <Text style={styles.title}>{title}</Text>
           {body ? <Text style={styles.body}>{body}</Text> : null}
+          {errorText ? (
+            <Text style={styles.errorText} testID="confirm-dialog-error">
+              {errorText}
+            </Text>
+          ) : null}
           <View style={styles.actions}>
             <Button
               variant={destructive ? "destructive" : "primary"}
@@ -107,4 +114,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   actions: { gap: spacing.sm, marginTop: spacing.xl, alignSelf: "stretch" },
+  errorText: {
+    fontSize: font.sm,
+    color: colors.errorText,
+    textAlign: "center",
+    marginTop: spacing.md,
+    lineHeight: 18,
+  },
 });

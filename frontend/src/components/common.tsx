@@ -213,12 +213,14 @@ export function StatRow({
 }
 
 // ---------- Naos NaosButton (single reusable button) ----------
-type ButtonVariant = "primary" | "destructive" | "secondary";
+type ButtonVariant = "primary" | "destructive" | "secondary" | "destructiveGhost";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, { bg: string; border: string; fg: string }> = {
   primary: { bg: colors.brandPrimary, border: colors.brandPrimary, fg: "#FFFFFF" },
   destructive: { bg: colors.negativePress, border: colors.negativePress, fg: "#FFFFFF" },
   secondary: { bg: colors.surfaceSecondary, border: colors.border, fg: colors.onSurface },
+  // Secondary chrome with negative-red ink (Naos #CF1A3B) — used for Delete.
+  destructiveGhost: { bg: colors.surfaceSecondary, border: colors.border, fg: colors.errorText },
 };
 
 export function Button({

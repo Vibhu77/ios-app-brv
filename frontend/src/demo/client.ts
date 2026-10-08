@@ -139,4 +139,11 @@ export const demoBrevo = {
     c.modifiedAt = new Date().toISOString();
     return {};
   },
+  deleteContact: async (_token: string, id: number | string) => {
+    await delay(150);
+    const before = contacts.length;
+    contacts = contacts.filter((x) => String(x.id) !== String(id));
+    if (contacts.length === before) throw demoError(404, "Contact not found");
+    return { ok: true };
+  },
 };

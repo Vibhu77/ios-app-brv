@@ -54,9 +54,10 @@ export default function ContactsScreen() {
     setError(null);
     try {
       const res = await brevo.listContacts(token, 0, pageSize);
-      const list = res?.contacts || [];
+      const deleted = new Set(cache.get<(string | number)[]>(cacheKeys.contactsDeleted) || []);
+      const list = (res?.contacts || []).filter((c: Contact) => !deleted.has(c.id));
       const nextTotal = res?.count ?? null;
-      const more = list.length >= pageSize;
+      const more = (res?.contacts || []).length >= pageSize;
       setContacts(list);
       setTotal(nextTotal);
       setHasMore(more);
@@ -81,9 +82,10 @@ export default function ContactsScreen() {
       const list = res?.contacts || [];
       const more = list.length >= pageSize;
       const nextTotal = res?.count ?? total;
+      const deleted = new Set(cache.get<(string | number)[]>(cacheKeys.contactsDeleted) || []);
       const merged = (() => {
         const seen = new Set(contacts.map((c) => c.id));
-        return [...contacts, ...list.filter((c: Contact) => !seen.has(c.id))];
+        return [...contacts, ...list.filter((c: Contact) => !seen.has(c.id) && !deleted.has(c.id))];
       })();
       setContacts(merged);
       setTotal(nextTotal);

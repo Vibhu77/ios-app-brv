@@ -65,6 +65,7 @@ async function req(path: string, token: string, opts: RequestInit = {}) {
     err.status = res.status;
     err.upstreamStatus = upstream;
     err.brevoCode = detail && typeof detail === "object" ? detail.brevo_code : undefined;
+    err.field = detail && typeof detail === "object" ? detail.field : undefined;
     err.requestId = requestId;
     err.upstreamBody = detail && typeof detail === "object" ? detail.upstream_body : undefined;
     throw err;
@@ -155,6 +156,8 @@ const realBrevo = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  deleteContact: (token: string, id: number | string) =>
+    req(`/brevo/contacts/${encodeURIComponent(String(id))}`, token, { method: "DELETE" }),
 };
 
 // DEMO DATA mode: choose the client PER CALL based on the session token, so a

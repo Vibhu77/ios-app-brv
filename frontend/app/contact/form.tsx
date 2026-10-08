@@ -60,6 +60,9 @@ export default function ContactForm() {
   });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [identifierError, setIdentifierError] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const scrollRef = React.useRef<any>(null);
+  const scrollToTop = () => scrollRef.current?.scrollTo?.({ y: 0, animated: true });
 
   const load = useCallback(async () => {
     if (!isEdit) return;
@@ -106,6 +109,7 @@ export default function ContactForm() {
   const clearErr = (key: string) => {
     setFieldErrors((p) => ({ ...p, [key]: undefined }));
     setIdentifierError(false);
+    setSaveError(null);
   };
   const setName = (key: "FIRSTNAME" | "LASTNAME", v: string) => setNames((p) => ({ ...p, [key]: v }));
   const setPhoneCountry = (key: PhoneKey, country: CountryCode) =>
@@ -122,6 +126,7 @@ export default function ContactForm() {
   const onSave = async () => {
     setFieldErrors({});
     setIdentifierError(false);
+    setSaveError(null);
     Keyboard.dismiss();
 
     const errs: FieldErrors = {};
@@ -220,24 +225,37 @@ export default function ContactForm() {
       }
       router.back();
     } catch (e: any) {
-      const status = e?.upstreamStatus || e?.status;
-      const msg: string = e?.message || "Failed to save contact";
-      const msgLower = (msg + " " + (e?.detail?.message || "")).toLowerCase();
-      const field = e?.detail?.field as string | undefined;
+      const status = e?.status;
+      const code = e?.brevoCode;
+      const msg: string = e?.message || "Couldn't save contact. Please try again.";
+      const low = msg.toLowerCase();
+      const field = e?.field as string | undefined;
       const KNOWN = ["SMS", "WHATSAPP", "LANDLINE_NUMBER", "EXT_ID"];
+
+      // Backend field-tagged validation (e.g. phone format) -> that field.
       if (status === 400 && field && KNOWN.includes(field)) {
         setFieldErrors({ [field]: msg });
-      } else if (status === 400 && msgLower.includes("whatsapp")) {
-        setFieldErrors({ WHATSAPP: msg });
-      } else if (status === 400 && msgLower.includes("landline")) {
-        setFieldErrors({ LANDLINE_NUMBER: msg });
-      } else if (status === 400 && msgLower.includes("sms")) {
-        setFieldErrors({ SMS: msg });
-      } else if (status === 400 && (msgLower.includes("ext_id") || msgLower.includes("external"))) {
-        setFieldErrors({ EXT_ID: msg });
-      } else {
-        toast.show(msg, "error");
+        scrollToTop();
+        return;
       }
+
+      // Brevo duplicate -> inline under the matching field (never a toast, which
+      // renders behind the form sheet).
+      const isDuplicate =
+        code === "duplicate_parameter" || low.includes("already associated") || low.includes("already exist");
+      if (isDuplicate) {
+        if (low.includes("whatsapp")) setFieldErrors({ WHATSAPP: "This WhatsApp number already belongs to another contact." });
+        else if (low.includes("landline")) setFieldErrors({ LANDLINE_NUMBER: "This landline already belongs to another contact." });
+        else if (low.includes("sms") || low.includes("phone")) setFieldErrors({ SMS: "This phone number already belongs to another contact." });
+        else if (low.includes("ext_id") || low.includes("external")) setFieldErrors({ EXT_ID: "This external ID already belongs to another contact." });
+        else setFieldErrors({ email: "This email already belongs to another contact." });
+        scrollToTop();
+        return;
+      }
+
+      // Anything else -> error banner at the top of the sheet.
+      setSaveError(msg);
+      scrollToTop();
     } finally {
       setSaving(false);
     }
@@ -260,11 +278,22 @@ export default function ContactForm() {
       ) : (
         <>
           <KeyboardAwareScrollView
+            ref={scrollRef}
             bottomOffset={90}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + 120 }}
             showsVerticalScrollIndicator={false}
           >
+            {saveError ? (
+              <View style={styles.banner} testID="form-save-error">
+                <Ionicons name="alert-circle" size={20} color={colors.error} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.bannerTitle}>{"Couldn't save contact"}</Text>
+                  <Text style={styles.bannerText}>{saveError}</Text>
+                </View>
+              </View>
+            ) : null}
+
             {identifierError ? (
               <View style={styles.banner} testID="identifier-banner">
                 <Ionicons name="alert-circle" size={20} color={colors.error} />

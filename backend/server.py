@@ -649,6 +649,17 @@ async def update_contact(identifier: str, request: Request, sess: dict = Depends
     return await brevo_authed("PUT", f"/contacts/{encoded}", sess, json_body=payload)
 
 
+@api_router.delete("/brevo/contacts/{identifier}")
+async def delete_contact(identifier: str, sess: dict = Depends(get_session)):
+    # Always delete by numeric contact ID so contacts with only SMS / WhatsApp /
+    # landline / ext_id delete too. Brevo returns 204 on success. 404 (already
+    # gone) and 405 (the account's own Brevo login email — cannot be deleted)
+    # propagate as-is for the client to handle.
+    encoded = urllib.parse.quote(identifier, safe="")
+    await brevo_authed("DELETE", f"/contacts/{encoded}", sess, params={"identifierType": "contact_id"})
+    return {"ok": True}
+
+
 app.include_router(api_router)
 
 app.add_middleware(

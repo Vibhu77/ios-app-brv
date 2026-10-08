@@ -40,4 +40,7 @@ export const cacheKeys = {
   campaign: (id: string | number) => `campaign:${id}`,
   contact: (id: string | number) => `contact:${id}`,
   contactStats: (id: string | number) => `contactStats:${id}`,
+  // IDs deleted in-app; filtered from the Contacts list while Brevo's async
+  // deletion (a few minutes) propagates, so they vanish immediately.
+  contactsDeleted: "contacts:deleted",
 };

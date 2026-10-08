@@ -6,6 +6,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
 import { Avatar, StateView, Loader, Card, Button } from "@/src/components/common";
+import { ConfirmDialog } from "@/src/components/ConfirmDialog";
+import { useToast } from "@/src/context/ToastContext";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Contact, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
@@ -51,10 +53,14 @@ export default function ContactDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { token } = useBrevo();
+  const toast = useToast();
   const [contact, setContact] = useState<Contact | null>(() => cache.get<Contact>(cacheKeys.contact(id)) || null);
   const [stats, setStats] = useState<any>(() => cache.get<any>(cacheKeys.contactStats(id)) ?? null);
   const [loading, setLoading] = useState(!cache.get<Contact>(cacheKeys.contact(id)));
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -78,6 +84,50 @@ export default function ContactDetail() {
   }, [token, id]);
 
   useFocusRefetch(load);
+
+  // Remove the contact locally + from caches, then return to the list. Brevo's
+  // deletion is async (a few minutes), so we also record the id in a "deleted"
+  // set the list filters out until the backend catches up.
+  const finishDelete = useCallback(() => {
+    setConfirmOpen(false);
+    const cid = contact?.id;
+    if (cid != null) {
+      const cached = cache.get<{ list: Contact[]; total: number | null; hasMore: boolean }>(cacheKeys.contacts);
+      if (cached) {
+        cache.set(cacheKeys.contacts, {
+          ...cached,
+          list: cached.list.filter((c) => c.id !== cid),
+          total: cached.total != null ? Math.max(0, cached.total - 1) : cached.total,
+        });
+      }
+      const deleted = cache.get<(string | number)[]>(cacheKeys.contactsDeleted) || [];
+      if (!deleted.includes(cid)) cache.set(cacheKeys.contactsDeleted, [...deleted, cid]);
+      cache.del(cacheKeys.contact(String(cid)), cacheKeys.contactStats(String(cid)));
+    }
+    toast.show("Deleting this contact. It can take a few minutes", "success");
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/contacts");
+  }, [contact?.id, router, toast]);
+
+  const onDelete = useCallback(async () => {
+    if (!contact?.id) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await brevo.deleteContact(token, contact.id);
+      finishDelete();
+    } catch (e: any) {
+      if (e?.status === 404) {
+        finishDelete(); // already gone — treat as success
+      } else if (e?.status === 405) {
+        setDeleteError("This is your account's login email, so it can't be deleted.");
+      } else {
+        setDeleteError(e?.message || "Couldn't delete this contact. Please try again.");
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }, [contact?.id, token, finishDelete]);
 
   const events = useMemo(() => flattenEvents(stats), [stats]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -242,7 +292,41 @@ export default function ContactDetail() {
               onPress={() => router.push({ pathname: "/contact/form", params: { id: String(contact?.id) } })}
               testID="edit-contact-button"
             />
+            <View style={{ height: spacing.sm }} />
+            <Button
+              variant="destructiveGhost"
+              fullWidth
+              title="Delete contact"
+              icon="trash-outline"
+              onPress={() => {
+                setDeleteError(null);
+                setConfirmOpen(true);
+              }}
+              testID="delete-contact-button"
+            />
           </View>
+
+          <ConfirmDialog
+            visible={confirmOpen}
+            icon="trash-outline"
+            destructive
+            title="Delete this contact?"
+            body={`${
+              contact?.email ||
+              name ||
+              attrs.SMS ||
+              attrs.WHATSAPP ||
+              attrs.LANDLINE_NUMBER ||
+              "This contact"
+            } will be permanently removed from your Brevo contacts. This action cannot be undone.`}
+            confirmLabel="Delete contact"
+            cancelLabel="Keep contact"
+            busy={deleting}
+            errorText={deleteError || undefined}
+            onConfirm={onDelete}
+            onCancel={() => setConfirmOpen(false)}
+            testID="delete-contact-modal"
+          />
         </>
       )}
     </View>
