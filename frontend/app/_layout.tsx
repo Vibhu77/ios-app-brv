@@ -17,6 +17,11 @@ import { prefs } from "@/src/lib/prefs";
 // and agent works as expected.
 LogBox.ignoreAllLogs(true);
 
+// Deep links with no path (e.g. the Expo Go share link) must resolve to index
+// first, so any modal route always has a screen underneath it to go back to.
+// Without this, Android falls back to the first declared screen (the modal).
+export const unstable_settings = { initialRouteName: "index" };
+
 // Keep the native splash visible from cold start until icon fonts register.
 // Required because @expo/vector-icons' componentDidMount fallback fires
 // Font.loadAsync against a broken vendor path if any <Icon> mounts before
@@ -61,6 +66,7 @@ export default function RootLayout() {
             <ToastProvider>
               <StatusBar style="dark" />
               <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }}>
+                <Stack.Screen name="index" />
                 <Stack.Screen name="contact/form" options={{ presentation: "modal" }} />
               </Stack>
             </ToastProvider>

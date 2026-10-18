@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { StyleSheet, Text, View, TextInput, Pressable, Keyboard } from "react-native";
+import { StyleSheet, Text, View, TextInput, Pressable, Keyboard, BackHandler } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, Redirect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import {
   KeyboardAwareScrollView,
@@ -106,6 +106,22 @@ export default function ContactForm() {
     load();
   }, [load]);
 
+  // Close/back: pop if there's history, otherwise fall back to Contacts so the
+  // modal never dead-ends (e.g. opened as the first screen on a deep link).
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/contacts");
+  }, [router]);
+
+  // Android hardware back mirrors the X button.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      goBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [goBack]);
+
   const clearErr = (key: string) => {
     setFieldErrors((p) => ({ ...p, [key]: undefined }));
     setIdentifierError(false);
@@ -207,7 +223,7 @@ export default function ContactForm() {
       if (Object.keys(attrs).length) payload.attributes = attrs;
       if (extId.trim() !== (initial.EXT_ID || "").trim()) payload.ext_id = extId.trim();
       if (!payload.attributes && payload.ext_id === undefined) {
-        router.back();
+        goBack();
         return;
       }
     }
@@ -223,7 +239,7 @@ export default function ContactForm() {
         cache.del(cacheKeys.contacts);
         toast.show("Contact created", "success");
       }
-      router.back();
+      goBack();
     } catch (e: any) {
       const status = e?.status;
       const code = e?.brevoCode;
@@ -263,10 +279,15 @@ export default function ContactForm() {
 
   const idHint = identifierError ? IDENTIFIER_HINT : undefined;
 
+  // No session -> never render the form (and never let it call the API without
+  // a token). Redirect straight to login. Covers the Android deep-link case
+  // where the modal could otherwise surface while logged out.
+  if (!token) return <Redirect href="/login" />;
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <Pressable onPress={() => router.back()} hitSlop={12} testID="form-close-button">
+        <Pressable onPress={goBack} hitSlop={12} testID="form-close-button">
           <Ionicons name="close" size={26} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.headerTitle}>{isEdit ? "Edit Contact" : "New Contact"}</Text>
