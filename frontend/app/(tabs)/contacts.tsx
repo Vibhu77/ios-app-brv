@@ -180,21 +180,23 @@ export default function ContactsScreen() {
   }, [q, token]);
 
   // List rows: when searching, two labelled sections; otherwise plain contacts.
+  // One merged, flat list: loaded matches first, then Brevo matches appended
+  // at the END (deduped), so a row the user is about to tap never shifts up.
+  // A single count header sits above the results; the spinner stays in that
+  // header row while the Brevo lookup is still running.
   type Row = { kind: "header"; label: string; loading?: boolean } | { kind: "contact"; contact: Contact };
   const rows = React.useMemo<Row[]>(() => {
     if (!searching) return contacts.map((c) => ({ kind: "contact", contact: c }));
-    const out: Row[] = [];
     const deleted = deletedSet();
-    if (instant.length) {
-      out.push({ kind: "header", label: "In loaded contacts" });
-      instant.forEach((c) => out.push({ kind: "contact", contact: c }));
-    }
     const instantIds = new Set(instant.map((c) => c.id));
     const brevoDeduped = brevoResults.filter((c) => !instantIds.has(c.id) && !deleted.has(c.id));
-    if (brevoLoading || brevoDeduped.length) {
-      out.push({ kind: "header", label: "All contacts in Brevo", loading: brevoLoading });
-      brevoDeduped.forEach((c) => out.push({ kind: "contact", contact: c }));
-    }
+    const merged = [...instant, ...brevoDeduped];
+    // Both sources done with nothing -> let the empty state render.
+    if (merged.length === 0 && !brevoLoading) return [];
+    const n = merged.length;
+    const label = n === 0 && brevoLoading ? "Searching…" : `${n} result${n === 1 ? "" : "s"}`;
+    const out: Row[] = [{ kind: "header", label, loading: brevoLoading }];
+    merged.forEach((c) => out.push({ kind: "contact", contact: c }));
     return out;
   }, [searching, contacts, instant, brevoResults, brevoLoading]);
 
@@ -419,8 +421,6 @@ const styles = StyleSheet.create({
     fontSize: font.sm,
     fontWeight: "700",
     color: colors.onSurfaceTertiary,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
   },
   footerRetry: {
     flexDirection: "row",
