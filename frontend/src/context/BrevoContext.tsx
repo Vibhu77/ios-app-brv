@@ -140,9 +140,6 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
       handleIncomingUrl(url);
     });
     Linking.getInitialURL().then((url) => {
-      // Diagnostic: the exact URL the app cold-starts with (e.g. the Expo Go
-      // share link). Streams to the Metro dev-server logs on Android.
-      if (__DEV__) console.log("[startup] Linking.getInitialURL() =", url);
       handleIncomingUrl(url);
     });
     return () => sub.remove();

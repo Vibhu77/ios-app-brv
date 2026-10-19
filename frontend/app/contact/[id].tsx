@@ -174,7 +174,6 @@ export default function ContactDetail() {
       <GlassHeader
         title={name || "Contact"}
         onBack={() => {
-          console.log("[contact-detail] back pressed, canGoBack =", router.canGoBack());
           if (router.canGoBack()) {
             router.back();
           } else {

@@ -62,3 +62,10 @@ Follow-up: replace API-key auth with **Brevo OAuth 2.0** login (mandatory login 
 - P2: WhatsApp/Landline-only contact creation (blocked: pending confirmation Brevo API accepts it).
 - P2: Rewrite outdated backend tests (test_brevo_proxy.py still asserts API-key flow).
 - P2: Campaign trend charts; category chips for campaign status filtering.
+
+## Update — Contacts search-as-you-type + Android deep-link fix
+- Android deep-link: app/_layout.tsx initialRouteName="index" + <Stack.Screen name="index"> before contact/form; contact/form has a no-session <Redirect href="/login">, hardware-back + X use canGoBack()?back():replace("/(tabs)/contacts"). Same back pattern on campaign/contact detail.
+- Contacts search now search-as-you-type (no Search tap). Two sections:
+  - "In loaded contacts": instant contains-match (from 1 char) over loaded list — first/last/full name, email, phone digits.
+  - "All contacts in Brevo": debounced 400ms (from 2 chars) — full email -> GET /contacts/{email}; 7+ digits -> phone_id lookup; else name -> NEW backend GET /api/brevo/contacts-search?name= (equals on FIRSTNAME & LASTNAME, raw + capitalised for case-sensitivity, merged/deduped). Deduped vs loaded section; deleted-cache filtered; stale responses ignored via request-id ref.
+- Removed diagnostic console.logs ([startup] getInitialURL, [contact-detail] back pressed).

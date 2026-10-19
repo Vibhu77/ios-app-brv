@@ -158,6 +158,8 @@ const realBrevo = {
     }),
   deleteContact: (token: string, id: number | string) =>
     req(`/brevo/contacts/${encodeURIComponent(String(id))}`, token, { method: "DELETE" }),
+  searchContactsByName: (token: string, name: string) =>
+    req(`/brevo/contacts-search?name=${encodeURIComponent(name)}`, token),
 };
 
 // DEMO DATA mode: choose the client PER CALL based on the session token, so a

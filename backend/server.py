@@ -516,6 +516,36 @@ async def list_contacts(
     return {"count": data.get("count"), "contacts": data.get("contacts") or []}
 
 
+# Name search. Brevo's public API has no partial/fuzzy contact search, only
+# filter=equals(ATTR,"value"). We query FIRSTNAME and LASTNAME for an exact
+# match, merge + de-dupe by id. Brevo's equals is case-sensitive, so we also
+# try a capitalised variant ("mike" -> "Mike"). Path is `contacts-search`
+# (not `contacts/search`) so the /contacts/{identifier} route can't capture it.
+@api_router.get("/brevo/contacts-search")
+async def search_contacts_by_name(name: str, sess: dict = Depends(get_session)):
+    q = (name or "").replace('"', "").strip()
+    if not q:
+        return {"contacts": []}
+    candidates = [q]
+    cap = q[:1].upper() + q[1:].lower()
+    if cap != q:
+        candidates.append(cap)
+
+    merged: dict = {}
+    for val in candidates:
+        for attr in ("FIRSTNAME", "LASTNAME"):
+            params = {"filter": f'equals({attr},"{val}")', "limit": 50}
+            try:
+                data = await brevo_authed("GET", "/contacts", sess, params=params)
+            except HTTPException:
+                continue
+            for c in data.get("contacts") or []:
+                cid = c.get("id")
+                if cid is not None and cid not in merged:
+                    merged[cid] = c
+    return {"contacts": list(merged.values())}
+
+
 @api_router.get("/brevo/attributes")
 async def get_attributes(sess: dict = Depends(get_session)):
     return await brevo_authed("GET", "/contacts/attributes", sess)

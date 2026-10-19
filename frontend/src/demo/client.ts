@@ -146,4 +146,17 @@ export const demoBrevo = {
     if (contacts.length === before) throw demoError(404, "Contact not found");
     return { ok: true };
   },
+  searchContactsByName: async (_token: string, name: string) => {
+    await delay(200);
+    const q = (name || "").replace(/"/g, "").trim().toLowerCase();
+    if (!q) return { contacts: [] };
+    const matches = contacts.filter((c) => {
+      const a = c.attributes || {};
+      return (
+        String(a.FIRSTNAME || "").toLowerCase() === q ||
+        String(a.LASTNAME || "").toLowerCase() === q
+      );
+    });
+    return { contacts: matches.map((c) => ({ ...c })) };
+  },
 };

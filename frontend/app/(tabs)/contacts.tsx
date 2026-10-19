@@ -102,63 +102,101 @@ export default function ContactsScreen() {
 
   useFocusRefetch(load);
 
-  // --- Exact-identifier search (email or phone) across ALL contacts ---
-  // The public API has no fuzzy contact search, so we look up the exact
-  // identifier via GET /contacts/{identifier}. Debounced; fires only on a
-  // complete-looking email/phone (or on submit).
-  const [searchState, setSearchState] = useState<"idle" | "searching" | "found" | "notfound" | "error">("idle");
-  const [searchResult, setSearchResult] = useState<Contact | null>(null);
+  // --- Search (search-as-you-type) ---
+  // The public API has no fuzzy contact search, so we combine two sources:
+  //  1) INSTANT (from 1 char): contains-match over contacts already loaded.
+  //  2) BREVO (debounced 400ms, from 2 chars): exact lookup — full email,
+  //     full phone, or exact first/last name via /brevo/contacts-search.
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const [brevoResults, setBrevoResults] = useState<Contact[]>([]);
+  const [brevoLoading, setBrevoLoading] = useState(false);
+  const reqIdRef = React.useRef(0);
 
-  const looksComplete = (q: string) => {
-    if (q.includes("@")) return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(q);
-    const digits = q.replace(/[^\d]/g, "");
-    return digits.length >= 7; // full-ish phone number
-  };
+  const deletedSet = () => new Set(cache.get<(string | number)[]>(cacheKeys.contactsDeleted) || []);
 
-  const runSearch = useCallback(
-    async (raw: string) => {
-      const q = raw.trim();
-      if (!q) return;
-      setSearchState("searching");
-      setSearchResult(null);
-      try {
-        let contact: Contact;
-        if (q.includes("@")) {
-          contact = await brevo.getContact(token, q);
-        } else if (/^[+\d]/.test(q)) {
-          const phone = q.replace(/[\s-]/g, "");
-          contact = await brevo.getContact(token, phone, "phone_id");
-        } else {
-          contact = await brevo.getContact(token, q);
-        }
-        setSearchResult(contact);
-        setSearchState("found");
-      } catch (e: any) {
-        const status = e?.upstreamStatus || e?.status;
-        if (status === 404 || status === 400) setSearchState("notfound");
-        else setSearchState("error");
+  const q = query.trim();
+  const searching = q.length > 0;
+
+  // Instant contains-match over loaded contacts (name / email / phone digits).
+  const instant = React.useMemo<Contact[]>(() => {
+    if (!searching) return [];
+    const ql = q.toLowerCase();
+    const qDigits = q.replace(/\D/g, "");
+    const deleted = deletedSet();
+    return contacts.filter((c) => {
+      if (deleted.has(c.id)) return false;
+      const a = c.attributes || {};
+      const first = String(a.FIRSTNAME || "").toLowerCase();
+      const last = String(a.LASTNAME || "").toLowerCase();
+      const full = `${first} ${last}`.trim();
+      const email = String(c.email || "").toLowerCase();
+      if (first.includes(ql) || last.includes(ql) || full.includes(ql) || email.includes(ql)) return true;
+      if (qDigits.length > 0) {
+        const phones = [a.SMS, a.WHATSAPP, a.LANDLINE_NUMBER].map((v) => String(v || "").replace(/\D/g, ""));
+        if (phones.some((p) => p && p.includes(qDigits))) return true;
       }
-    },
-    [token]
-  );
+      return false;
+    });
+  }, [searching, q, contacts]);
 
+  // Debounced Brevo lookup. A bumped request id discards responses for text
+  // that has since changed.
   useEffect(() => {
-    const q = query.trim();
-    if (!q) {
-      setSearchState("idle");
-      setSearchResult(null);
+    if (q.length < 2) {
+      setBrevoResults([]);
+      setBrevoLoading(false);
       return;
     }
-    if (!looksComplete(q)) {
-      setSearchState("idle");
-      return;
-    }
-    const t = setTimeout(() => runSearch(q), 500);
+    const myId = ++reqIdRef.current;
+    setBrevoLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        let results: Contact[] = [];
+        if (q.includes("@")) {
+          if (EMAIL_RE.test(q)) {
+            const c = await brevo.getContact(token, q);
+            results = c ? [c] : [];
+          }
+        } else {
+          const d = q.replace(/\D/g, "");
+          if (d.length >= 7) {
+            const c = await brevo.getContact(token, d, "phone_id");
+            results = c ? [c] : [];
+          } else {
+            const res = await brevo.searchContactsByName(token, q);
+            results = res?.contacts || [];
+          }
+        }
+        if (reqIdRef.current === myId) setBrevoResults(results);
+      } catch {
+        if (reqIdRef.current === myId) setBrevoResults([]);
+      } finally {
+        if (reqIdRef.current === myId) setBrevoLoading(false);
+      }
+    }, 400);
     return () => clearTimeout(t);
-  }, [query, runSearch]);
+    // EMAIL_RE is a stable literal; token/q drive the lookup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, token]);
 
-  const searching = query.trim().length > 0;
-  const displayData: Contact[] = searching ? (searchResult ? [searchResult] : []) : contacts;
+  // List rows: when searching, two labelled sections; otherwise plain contacts.
+  type Row = { kind: "header"; label: string; loading?: boolean } | { kind: "contact"; contact: Contact };
+  const rows = React.useMemo<Row[]>(() => {
+    if (!searching) return contacts.map((c) => ({ kind: "contact", contact: c }));
+    const out: Row[] = [];
+    const deleted = deletedSet();
+    if (instant.length) {
+      out.push({ kind: "header", label: "In loaded contacts" });
+      instant.forEach((c) => out.push({ kind: "contact", contact: c }));
+    }
+    const instantIds = new Set(instant.map((c) => c.id));
+    const brevoDeduped = brevoResults.filter((c) => !instantIds.has(c.id) && !deleted.has(c.id));
+    if (brevoLoading || brevoDeduped.length) {
+      out.push({ kind: "header", label: "All contacts in Brevo", loading: brevoLoading });
+      brevoDeduped.forEach((c) => out.push({ kind: "contact", contact: c }));
+    }
+    return out;
+  }, [searching, contacts, instant, brevoResults, brevoLoading]);
 
   const searchBox = (
     <View style={styles.searchBox}>
@@ -166,14 +204,13 @@ export default function ContactsScreen() {
       <TextInput
         testID="contacts-search-input"
         style={styles.searchInput}
-        placeholder="Search by full email or phone number"
+        placeholder="Search by name, email or phone"
         placeholderTextColor={colors.onSurfaceTertiary}
         value={query}
         onChangeText={setQuery}
-        onSubmitEditing={() => query.trim() && runSearch(query)}
         autoCapitalize="none"
         autoCorrect={false}
-        keyboardType="email-address"
+        keyboardType="default"
         returnKeyType="search"
       />
       {query.length > 0 ? (
@@ -194,18 +231,27 @@ export default function ContactsScreen() {
     </View>
   );
 
-  const renderItem = ({ item }: { item: Contact }) => {
-    const name = contactName(item);
+  const renderRow = ({ item }: { item: Row }) => {
+    if (item.kind === "header") {
+      return (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>{item.label}</Text>
+          {item.loading ? <ActivityIndicator size="small" color={colors.brandPrimary} /> : null}
+        </View>
+      );
+    }
+    const c = item.contact;
+    const name = contactName(c);
     return (
       <Pressable
-        testID={`contact-row-${item.id}`}
-        onPress={() => router.push(`/contact/${item.id}`)}
+        testID={`contact-row-${c.id}`}
+        onPress={() => router.push(`/contact/${c.id}`)}
         style={({ pressed }) => [styles.row, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface }]}
       >
-        <Avatar label={name || item.email} />
+        <Avatar label={name || c.email} />
         <View style={styles.rowText}>
           <Text style={styles.rowPrimary} numberOfLines={1}>
-            {item.email}
+            {c.email}
           </Text>
           {name ? (
             <Text style={styles.rowSecondary} numberOfLines={1}>
@@ -249,9 +295,9 @@ export default function ContactsScreen() {
       ) : (
         <Animated.FlatList
           testID="contacts-list"
-          data={displayData}
-          keyExtractor={(c: Contact) => String(c.id)}
-          renderItem={renderItem}
+          data={rows}
+          keyExtractor={(r: Row) => (r.kind === "header" ? `h:${r.label}` : `c:${r.contact.id}`)}
+          renderItem={renderRow}
           ListHeaderComponent={listHeader}
           onScroll={onScroll}
           scrollEventThrottle={16}
@@ -271,30 +317,18 @@ export default function ContactsScreen() {
               </View>
             ) : null
           }
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ItemSeparatorComponent={({ leadingItem }: any) =>
+            leadingItem?.kind === "contact" ? <View style={styles.separator} /> : null
+          }
           ListEmptyComponent={
             searching ? (
-              searchState === "searching" ? (
-                <View style={styles.footer}>
-                  <ActivityIndicator color={colors.brandPrimary} />
-                </View>
-              ) : searchState === "idle" ? (
-                <View style={styles.hintWrap}>
-                  <Text style={styles.hint}>Type a full email or phone number to find a contact.</Text>
-                </View>
-              ) : (
-                <EmptyState
-                  title="No results"
-                  description={
-                    searchState === "error"
-                      ? "Something went wrong. Try again, or search by full email or phone number."
-                      : "Try a different search — search by full email or phone number."
-                  }
-                  actionLabel="Clear"
-                  onAction={() => setQuery("")}
-                  testID="contacts-empty"
-                />
-              )
+              <EmptyState
+                title="No contacts match"
+                description="Brevo finds names by exact first or last name, and emails and phone numbers by the full value."
+                actionLabel="Clear"
+                onAction={() => setQuery("")}
+                testID="contacts-empty"
+              />
             ) : (
               <EmptyState
                 title="No contacts yet"
@@ -372,6 +406,22 @@ const styles = StyleSheet.create({
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 72 },
   skRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
   footer: { paddingVertical: spacing.lg, alignItems: "center" },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  sectionLabel: {
+    fontSize: font.sm,
+    fontWeight: "700",
+    color: colors.onSurfaceTertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
   footerRetry: {
     flexDirection: "row",
     alignItems: "center",
