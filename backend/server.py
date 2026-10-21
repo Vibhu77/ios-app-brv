@@ -531,18 +531,29 @@ async def search_contacts_by_name(name: str, sess: dict = Depends(get_session)):
     if cap != q:
         candidates.append(cap)
 
+    async def lookup(val: str, attr: str):
+        params = {"filter": f'equals({attr},"{val}")', "limit": 50}
+        try:
+            data = await brevo_authed("GET", "/contacts", sess, params=params)
+            return data.get("contacts") or []
+        except HTTPException as e:
+            # Only a benign "no match" (bad filter / not found) counts as empty.
+            # Auth / rate-limit / server errors must surface so the client shows
+            # a retry line instead of a false "no results".
+            if e.status_code in (400, 404):
+                return []
+            raise
+
+    # Run every variant/field lookup in parallel.
+    tasks = [lookup(val, attr) for val in candidates for attr in ("FIRSTNAME", "LASTNAME")]
+    groups = await asyncio.gather(*tasks)
+
     merged: dict = {}
-    for val in candidates:
-        for attr in ("FIRSTNAME", "LASTNAME"):
-            params = {"filter": f'equals({attr},"{val}")', "limit": 50}
-            try:
-                data = await brevo_authed("GET", "/contacts", sess, params=params)
-            except HTTPException:
-                continue
-            for c in data.get("contacts") or []:
-                cid = c.get("id")
-                if cid is not None and cid not in merged:
-                    merged[cid] = c
+    for group in groups:
+        for c in group:
+            cid = c.get("id")
+            if cid is not None and cid not in merged:
+                merged[cid] = c
     return {"contacts": list(merged.values())}
 
 

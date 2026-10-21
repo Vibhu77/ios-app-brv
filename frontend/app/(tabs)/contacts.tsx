@@ -110,6 +110,8 @@ export default function ContactsScreen() {
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const [brevoResults, setBrevoResults] = useState<Contact[]>([]);
   const [brevoLoading, setBrevoLoading] = useState(false);
+  const [brevoError, setBrevoError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
   const reqIdRef = React.useRef(0);
 
   const deletedSet = () => new Set(cache.get<(string | number)[]>(cacheKeys.contactsDeleted) || []);
@@ -140,65 +142,94 @@ export default function ContactsScreen() {
   }, [searching, q, contacts]);
 
   // Debounced Brevo lookup. A bumped request id discards responses for text
-  // that has since changed.
+  // that has since changed. Not-found (400/404) clears results quietly; a real
+  // failure keeps the loaded matches and flips brevoError (retry line shown).
   useEffect(() => {
-    if (q.length < 2) {
+    const digits = q.replace(/\D/g, "");
+    const isEmail = q.includes("@") && EMAIL_RE.test(q);
+    const isPhone = !q.includes("@") && digits.length >= 7;
+    // Names hit Brevo only from 3 chars (instant local matching starts at 1).
+    const isName = !q.includes("@") && digits.length < 7 && q.length >= 3;
+
+    if (!isEmail && !isPhone && !isName) {
       setBrevoResults([]);
       setBrevoLoading(false);
+      setBrevoError(false);
       return;
     }
     const myId = ++reqIdRef.current;
     setBrevoLoading(true);
+    setBrevoError(false);
     const t = setTimeout(async () => {
       try {
         let results: Contact[] = [];
-        if (q.includes("@")) {
-          if (EMAIL_RE.test(q)) {
-            const c = await brevo.getContact(token, q);
+        if (isEmail) {
+          const c = await brevo.getContact(token, q);
+          results = c ? [c] : [];
+        } else if (isPhone) {
+          // Send the international form, keeping the "+" the user typed
+          // (strip only spaces/dashes). If "+…" 404s, retry once without "+".
+          const phone = q.replace(/[\s-]/g, "");
+          try {
+            const c = await brevo.getContact(token, phone, "phone_id");
             results = c ? [c] : [];
+          } catch (e: any) {
+            const st = e?.upstreamStatus || e?.status;
+            if (st === 404 && phone.startsWith("+")) {
+              const c = await brevo.getContact(token, phone.replace(/^\+/, ""), "phone_id");
+              results = c ? [c] : [];
+            } else {
+              throw e;
+            }
           }
         } else {
-          const d = q.replace(/\D/g, "");
-          if (d.length >= 7) {
-            const c = await brevo.getContact(token, d, "phone_id");
-            results = c ? [c] : [];
-          } else {
-            const res = await brevo.searchContactsByName(token, q);
-            results = res?.contacts || [];
-          }
+          const res = await brevo.searchContactsByName(token, q);
+          results = res?.contacts || [];
         }
         if (reqIdRef.current === myId) setBrevoResults(results);
-      } catch {
-        if (reqIdRef.current === myId) setBrevoResults([]);
+      } catch (e: any) {
+        if (reqIdRef.current !== myId) return;
+        const st = e?.upstreamStatus || e?.status;
+        setBrevoResults([]);
+        // 400/404 = genuinely no match; anything else = a failed lookup.
+        setBrevoError(!(st === 404 || st === 400));
       } finally {
         if (reqIdRef.current === myId) setBrevoLoading(false);
       }
     }, 400);
     return () => clearTimeout(t);
-    // EMAIL_RE is a stable literal; token/q drive the lookup.
+    // EMAIL_RE is a stable literal; token/q/retryTick drive the lookup.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, token]);
+  }, [q, token, retryTick]);
 
   // List rows: when searching, two labelled sections; otherwise plain contacts.
   // One merged, flat list: loaded matches first, then Brevo matches appended
   // at the END (deduped), so a row the user is about to tap never shifts up.
   // A single count header sits above the results; the spinner stays in that
   // header row while the Brevo lookup is still running.
-  type Row = { kind: "header"; label: string; loading?: boolean } | { kind: "contact"; contact: Contact };
+  type Row =
+    | { kind: "header"; label: string; loading?: boolean }
+    | { kind: "contact"; contact: Contact }
+    | { kind: "retry" };
   const rows = React.useMemo<Row[]>(() => {
     if (!searching) return contacts.map((c) => ({ kind: "contact", contact: c }));
     const deleted = deletedSet();
     const instantIds = new Set(instant.map((c) => c.id));
     const brevoDeduped = brevoResults.filter((c) => !instantIds.has(c.id) && !deleted.has(c.id));
     const merged = [...instant, ...brevoDeduped];
-    // Both sources done with nothing -> let the empty state render.
-    if (merged.length === 0 && !brevoLoading) return [];
-    const n = merged.length;
-    const label = n === 0 && brevoLoading ? "Searching…" : `${n} result${n === 1 ? "" : "s"}`;
-    const out: Row[] = [{ kind: "header", label, loading: brevoLoading }];
+    // Empty state only when everything is done with 0 results AND no error.
+    if (merged.length === 0 && !brevoLoading && !brevoError) return [];
+    const out: Row[] = [];
+    if (merged.length > 0 || brevoLoading) {
+      const n = merged.length;
+      const label = n === 0 && brevoLoading ? "Searching…" : `${n} result${n === 1 ? "" : "s"}`;
+      out.push({ kind: "header", label, loading: brevoLoading });
+    }
     merged.forEach((c) => out.push({ kind: "contact", contact: c }));
+    // Failed Brevo lookup -> keep loaded matches + show a small retry line.
+    if (brevoError && !brevoLoading) out.push({ kind: "retry" });
     return out;
-  }, [searching, contacts, instant, brevoResults, brevoLoading]);
+  }, [searching, contacts, instant, brevoResults, brevoLoading, brevoError]);
 
   const searchBox = (
     <View style={styles.searchBox}>
@@ -242,22 +273,40 @@ export default function ContactsScreen() {
         </View>
       );
     }
+    if (item.kind === "retry") {
+      return (
+        <Pressable
+          style={styles.searchRetry}
+          onPress={() => setRetryTick((n) => n + 1)}
+          testID="contacts-search-retry"
+        >
+          <Ionicons name="warning-outline" size={16} color={colors.error} />
+          <Text style={styles.footerRetryText}>Couldn&apos;t search all contacts. Tap to retry.</Text>
+        </Pressable>
+      );
+    }
     const c = item.contact;
     const name = contactName(c);
+    const a = c.attributes || {};
+    const phone = a.SMS || a.WHATSAPP || a.LANDLINE_NUMBER || "";
+    // First line: email, else name, else phone, else external/placeholder.
+    const primary = c.email || name || String(phone) || "No email";
+    // Only show the name on the second line when it isn't already the first.
+    const secondary = c.email ? name : primary === name ? "" : name;
     return (
       <Pressable
         testID={`contact-row-${c.id}`}
         onPress={() => router.push(`/contact/${c.id}`)}
         style={({ pressed }) => [styles.row, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface }]}
       >
-        <Avatar label={name || c.email} />
+        <Avatar label={name || c.email || String(phone) || "?"} />
         <View style={styles.rowText}>
           <Text style={styles.rowPrimary} numberOfLines={1}>
-            {c.email}
+            {primary}
           </Text>
-          {name ? (
+          {secondary ? (
             <Text style={styles.rowSecondary} numberOfLines={1}>
-              {name}
+              {secondary}
             </Text>
           ) : null}
         </View>
@@ -298,7 +347,9 @@ export default function ContactsScreen() {
         <Animated.FlatList
           testID="contacts-list"
           data={rows}
-          keyExtractor={(r: Row) => (r.kind === "header" ? `h:${r.label}` : `c:${r.contact.id}`)}
+          keyExtractor={(r: Row) =>
+            r.kind === "header" ? `h:${r.label}` : r.kind === "retry" ? "retry" : `c:${r.contact.id}`
+          }
           renderItem={renderRow}
           ListHeaderComponent={listHeader}
           onScroll={onScroll}
@@ -430,6 +481,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
   footerRetryText: { fontSize: font.base, color: colors.error, fontWeight: "600" },
+  searchRetry: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
   hintWrap: { paddingTop: spacing.xxl, paddingHorizontal: spacing.xl, alignItems: "center" },
   hint: { fontSize: font.base, color: colors.onSurfaceTertiary, textAlign: "center" },
   fab: {
