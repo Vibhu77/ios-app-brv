@@ -109,7 +109,9 @@ export type Campaign = {
   type?: string;
   status?: string;
   sentDate?: string;
+  scheduledAt?: string;
   createdAt?: string;
+  modifiedAt?: string;
   sender?: { name?: string; email?: string; id?: number };
   statistics?: { globalStats?: GlobalStats };
 };

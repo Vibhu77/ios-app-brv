@@ -11,7 +11,19 @@ import { useToast } from "@/src/context/ToastContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
-import { nf, pctStr, fmtDateTime } from "@/src/lib/format";
+import { nf, fmtDateTime, titleCase } from "@/src/lib/format";
+
+// Rate 0–100 for a numerator/denominator, never NaN/Infinity.
+const ratePct = (num?: number, den?: number) => {
+  if (!den || !num) return 0;
+  const v = (num / den) * 100;
+  return isFinite(v) ? v : 0;
+};
+// Web-style label: "0%" when zero, otherwise 2 decimals ("2.04%").
+const rateLabel = (v: number) => (v === 0 ? "0%" : `${v.toFixed(2)}%`);
+
+const GREEN = "#0B9A6F"; // Naos positive
+const RED = "#CF1A3B"; // Naos negative ink
 
 // Normalize Brevo status: case-insensitive + underscore/camelCase tolerant.
 // "in_process" | "inProcess" -> "inprocess", "Queued" -> "queued".
@@ -95,6 +107,28 @@ export default function CampaignDetail() {
     ? [campaign.sender.name, campaign.sender.email].filter(Boolean).join(" · ")
     : null;
 
+  const nStatus = norm(campaign?.status);
+  // Date line (web parity).
+  let dateText = "—";
+  if (campaign?.sentDate) dateText = `Sent ${fmtDateTime(campaign.sentDate)}`;
+  else if (campaign?.scheduledAt) dateText = `Scheduled for ${fmtDateTime(campaign.scheduledAt)}`;
+  else if (nStatus === "cancelled" || nStatus === "suspended")
+    dateText = `Updated ${fmtDateTime(campaign?.modifiedAt)}`;
+  else dateText = `Created ${fmtDateTime(campaign?.createdAt)}`;
+
+  // Rates (0–100).
+  const deliveryRate = ratePct(g.delivered, g.sent);
+  const openRate = ratePct(g.uniqueViews, g.delivered);
+  const clickRate = ratePct(g.uniqueClicks, g.delivered);
+  const unsubRate = ratePct(g.unsubscriptions, g.delivered);
+  // Conversions only if the response actually carries one.
+  const convRaw = (g as any).conversions;
+  const hasConversions = typeof convRaw === "number";
+  const convRate = ratePct(convRaw, g.delivered);
+  // Bars only for actually-sent campaigns.
+  const showBars =
+    (g.sent || 0) > 0 && !["draft", "queued", "inreview"].includes(nStatus);
+
   const applyStatus = async () => {
     if (!action) return;
     setBusy(true);
@@ -167,6 +201,12 @@ export default function CampaignDetail() {
             <StatusBadge status={campaign.status} />
           </View>
           {campaign.subject ? <Text style={styles.subject}>{campaign.subject}</Text> : null}
+          <View style={styles.metaRow}>
+            <Ionicons name="pricetag-outline" size={13} color={colors.onSurfaceTertiary} />
+            <Text style={styles.meta}>
+              {`#${campaign.id} · ${titleCase(campaign.status || "")}`}
+            </Text>
+          </View>
           {senderText ? (
             <View style={styles.metaRow}>
               <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
@@ -175,10 +215,7 @@ export default function CampaignDetail() {
           ) : null}
           <View style={styles.metaRow}>
             <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceTertiary} />
-            <Text style={styles.meta}>
-              {campaign.sentDate ? "Sent " : "Created "}
-              {fmtDateTime(campaign.sentDate || campaign.createdAt)}
-            </Text>
+            <Text style={styles.meta}>{dateText}</Text>
           </View>
 
           {/* Visible, labeled Suspend/Resume action (only for applicable states) */}
@@ -202,30 +239,49 @@ export default function CampaignDetail() {
               icon="checkmark-done-outline"
               label="Delivered"
               value={nf(g.delivered)}
-              sub={`${pctStr(g.delivered, g.sent)} delivery`}
+              sub={`${rateLabel(deliveryRate)} delivery rate`}
+              rate={showBars ? deliveryRate : undefined}
+              barColor={GREEN}
               testID="kpi-delivered"
             />
             <CompactStat
               icon="mail-open-outline"
               label="Opens"
               value={nf(g.uniqueViews)}
-              sub={`${pctStr(g.uniqueViews, g.delivered)} open rate`}
+              sub={`${rateLabel(openRate)} open rate`}
+              rate={showBars ? openRate : undefined}
+              barColor={GREEN}
               testID="kpi-opens"
             />
             <CompactStat
               icon="link-outline"
               label="Clicks"
               value={nf(g.uniqueClicks)}
-              sub={`${pctStr(g.uniqueClicks, g.delivered)} CTR`}
+              sub={`${rateLabel(clickRate)} click-through rate`}
+              rate={showBars ? clickRate : undefined}
+              barColor={GREEN}
               testID="kpi-clicks"
             />
             <CompactStat
               icon="person-remove-outline"
               label="Unsubscribes"
               value={nf(g.unsubscriptions)}
-              sub={`${pctStr(g.unsubscriptions, g.delivered)} of sent`}
+              sub={`${rateLabel(unsubRate)} unsubscribe rate`}
+              rate={showBars ? unsubRate : undefined}
+              barColor={RED}
               testID="kpi-unsubscribes"
             />
+            {hasConversions ? (
+              <CompactStat
+                icon="trending-up-outline"
+                label="Conversions"
+                value={nf(convRaw)}
+                sub={`${rateLabel(convRate)} conversion rate`}
+                rate={showBars ? convRate : undefined}
+                barColor={GREEN}
+                testID="kpi-conversions"
+              />
+            ) : null}
             <CompactStat
               icon="warning-outline"
               label="Bounces"
@@ -280,6 +336,8 @@ function CompactStat({
   sub,
   testID,
   full,
+  rate,
+  barColor,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -287,9 +345,23 @@ function CompactStat({
   sub: string;
   testID?: string;
   full?: boolean;
+  rate?: number;
+  barColor?: string;
 }) {
+  // Fill width: 0% -> none; non-zero under 1% -> 2px sliver; else the %.
+  const showBar = rate !== undefined;
+  const fillStyle =
+    rate === undefined || rate <= 0
+      ? null
+      : rate < 1
+      ? { width: 2 as const }
+      : { width: `${Math.min(rate, 100)}%` as const };
   return (
-    <View style={[styles.stat, full && styles.statFull]} testID={testID}>
+    <View
+      style={[styles.stat, full && styles.statFull]}
+      testID={testID}
+      accessibilityLabel={`${label} ${value}, ${sub}`}
+    >
       <View style={styles.statHead}>
         <Ionicons name={icon} size={16} color={colors.onSurfaceSecondary} />
         <Text style={styles.statLabel} numberOfLines={1}>
@@ -302,6 +374,11 @@ function CompactStat({
       <Text style={styles.statSub} numberOfLines={1}>
         {sub}
       </Text>
+      {showBar ? (
+        <View style={styles.barTrack}>
+          {fillStyle ? <View style={[styles.barFill, { backgroundColor: barColor }, fillStyle]} /> : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -347,6 +424,17 @@ const styles = StyleSheet.create({
   statLabel: { flex: 1, fontSize: font.sm, color: colors.onSurfaceSecondary, fontFamily: fonts.semibold },
   statValue: { fontSize: 22, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5, marginTop: spacing.sm },
   statSub: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 1 },
+
+  // Rate bar
+  barTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.surfaceSecondary,
+    marginTop: spacing.sm,
+    width: "100%",
+    overflow: "hidden",
+  },
+  barFill: { height: 6, borderRadius: 3 },
 
   // Confirmation modal
   modalBackdrop: {
