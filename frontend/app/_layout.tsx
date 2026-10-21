@@ -1,8 +1,9 @@
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
-import { LogBox, StyleSheet, Text, TextInput } from "react-native";
+import { LogBox, StyleSheet, Text, TextInput, View, ScrollView, Linking, Pressable } from "react-native";
 import { useFonts } from "expo-font";
+import { Image as ExpoImage } from "expo-image";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -12,6 +13,70 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { BrevoProvider } from "@/src/context/BrevoContext";
 import { ToastProvider } from "@/src/context/ToastContext";
 import { prefs } from "@/src/lib/prefs";
+import { colors, spacing, fonts, font } from "@/src/theme";
+
+const SUPPORT_URL = "https://help.brevo.com/";
+
+// Root error boundary (Expo Router): render a friendly screen instead of a
+// blank/red crash. Never surfaces the error text/stack to the user; logs it in
+// dev only.
+export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Promise<void> }) {
+  if (__DEV__) console.error(error);
+  return (
+    <View style={ebStyles.container}>
+      <ScrollView contentContainerStyle={ebStyles.content} showsVerticalScrollIndicator={false}>
+        <ExpoImage
+          source={require("@/assets/error-page.png")}
+          style={ebStyles.img}
+          contentFit="contain"
+        />
+        <Text style={ebStyles.title}>We could not show this page</Text>
+        <View style={ebStyles.bullets}>
+          <Text style={ebStyles.bullet}>{"\u2022  Try again."}</Text>
+          <Text style={ebStyles.bullet}>
+            {"\u2022  Go back to where you were and try again to access this page."}
+          </Text>
+        </View>
+        <Text style={ebStyles.supportLine}>
+          If it still does not work,{" "}
+          <Text style={ebStyles.link} onPress={() => Linking.openURL(SUPPORT_URL)}>
+            contact our Support team
+          </Text>
+          .
+        </Text>
+        <View style={ebStyles.actions}>
+          <Pressable style={[ebStyles.btn, ebStyles.btnPrimary]} onPress={() => retry()} testID="error-retry">
+            <Text style={ebStyles.btnPrimaryText}>Try again</Text>
+          </Pressable>
+          <Pressable
+            style={[ebStyles.btn, ebStyles.btnSecondary]}
+            onPress={() => router.replace("/(tabs)/campaigns")}
+            testID="error-home"
+          >
+            <Text style={ebStyles.btnSecondaryText}>Go to Home</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const ebStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.surface },
+  content: { flexGrow: 1, justifyContent: "center", paddingHorizontal: spacing.xl, paddingVertical: spacing.xxxl, gap: spacing.lg },
+  img: { width: 240, height: 180, alignSelf: "flex-start" },
+  title: { fontSize: font.xxl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5 },
+  bullets: { gap: spacing.sm },
+  bullet: { fontSize: font.base, color: colors.onSurfaceSecondary, lineHeight: 22 },
+  supportLine: { fontSize: font.base, color: colors.onSurfaceSecondary, lineHeight: 22 },
+  link: { color: colors.brandPrimary, textDecorationLine: "underline", fontFamily: fonts.semibold },
+  actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.md },
+  btn: { minHeight: 48, borderRadius: 16, paddingHorizontal: 20, alignItems: "center", justifyContent: "center" },
+  btnPrimary: { backgroundColor: colors.brandPrimary },
+  btnPrimaryText: { color: "#FFFFFF", fontSize: 15, fontFamily: fonts.semibold },
+  btnSecondary: { backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
+  btnSecondaryText: { color: colors.onSurface, fontSize: 15, fontFamily: fonts.semibold },
+});
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.

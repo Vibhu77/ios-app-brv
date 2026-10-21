@@ -7,7 +7,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
-import { StateView, Skeleton, Card, StatusBadge } from "@/src/components/common";
+import { StateView, Skeleton, Card, StatusBadge, EmptyState } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
@@ -327,11 +327,11 @@ export default function CampaignsScreen() {
           ListEmptyComponent={
             <View style={{ paddingTop: spacing.xl }}>
               {filtering ? (
-                <StateView
-                  icon="search-outline"
-                  title="No matching campaigns"
-                  message="Try a different search or filter."
-                  actionLabel="Clear filters"
+                <EmptyState
+                  illustration="noResults"
+                  title="We couldn't find what you're looking for."
+                  description="Try different keyword"
+                  actionLabel="Clear keyword"
                   onAction={() => {
                     setQuery("");
                     setActiveStatus(null);
@@ -339,10 +339,9 @@ export default function CampaignsScreen() {
                   testID="campaigns-empty-filtered"
                 />
               ) : (
-                <StateView
-                  icon="mail-outline"
+                <EmptyState
                   title="No campaigns yet"
-                  message="Create a campaign in Brevo to see its report here."
+                  description="Create a campaign in Brevo to see its report here."
                   testID="campaigns-empty"
                 />
               )}

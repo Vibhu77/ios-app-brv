@@ -376,9 +376,11 @@ export default function ContactsScreen() {
           ListEmptyComponent={
             searching ? (
               <EmptyState
-                title="No contacts match"
-                description="Brevo finds names by exact first or last name, and emails and phone numbers by the full value."
-                actionLabel="Clear"
+                illustration="noResults"
+                title="We couldn't find what you're looking for."
+                description="Try different keyword"
+                footnote="Names are matched exactly in Brevo; emails and phone numbers by the full value."
+                actionLabel="Clear keyword"
                 onAction={() => setQuery("")}
                 testID="contacts-empty"
               />

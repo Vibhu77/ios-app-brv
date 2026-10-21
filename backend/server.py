@@ -566,7 +566,55 @@ async def get_attributes(sess: dict = Depends(get_session)):
 # Returns the raw upstream payload (includes plan + planVerticals).
 @api_router.get("/brevo/account")
 async def get_brevo_account(sess: dict = Depends(get_session)):
-    return await brevo_authed("GET", "/account", sess)
+    # Return only the account fields the app actually uses — not Brevo's full
+    # raw /v3/account payload. Response shape matches what Settings/Profile read.
+    raw = await brevo_authed("GET", "/account", sess)
+
+    # plan: Brevo returns a list of plan entries (or sometimes a dict). Expose
+    # only type + endDate from the entry Settings reads today.
+    raw_plan = raw.get("plan")
+    plan_entry = None
+    if isinstance(raw_plan, list):
+        plan_entry = next((p for p in raw_plan if isinstance(p, dict) and p.get("type")), None)
+        if plan_entry is None and raw_plan and isinstance(raw_plan[0], dict):
+            plan_entry = raw_plan[0]
+    elif isinstance(raw_plan, dict):
+        plan_entry = raw_plan
+    plan = (
+        {"type": plan_entry.get("type"), "endDate": plan_entry.get("endDate")}
+        if isinstance(plan_entry, dict)
+        else None
+    )
+
+    raw_addr = raw.get("address") if isinstance(raw.get("address"), dict) else {}
+    address = {
+        "street": raw_addr.get("street"),
+        "city": raw_addr.get("city"),
+        "zipCode": raw_addr.get("zipCode"),
+        "country": raw_addr.get("country"),
+    }
+
+    out = {
+        "email": raw.get("email"),
+        "firstName": raw.get("firstName"),
+        "lastName": raw.get("lastName"),
+        "companyName": raw.get("companyName"),
+        "address": address,
+        "plan": plan,
+    }
+
+    # planVerticals: only include when present, and only the credits the app reads.
+    raw_verticals = raw.get("planVerticals")
+    if isinstance(raw_verticals, dict):
+        pv = {}
+        if isinstance(raw_verticals.get("email"), dict):
+            pv["email"] = {"credits": raw_verticals["email"].get("credits")}
+        if isinstance(raw_verticals.get("sms"), dict):
+            pv["sms"] = {"credits": raw_verticals["sms"].get("credits")}
+        if pv:
+            out["planVerticals"] = pv
+
+    return out
 
 @api_router.get("/brevo/contacts/{identifier}/stats")
 async def contact_stats(identifier: str, sess: dict = Depends(get_session)):

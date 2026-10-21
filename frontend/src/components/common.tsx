@@ -6,13 +6,14 @@ import {
   Pressable,
   ActivityIndicator,
   ViewStyle,
-  Image,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, shadow, fonts } from "@/src/theme";
 import { titleCase } from "@/src/lib/format";
 
 const EMPTY_ILLUSTRATION = require("@/assets/empty-state.png");
+const NO_RESULTS_ILLUSTRATION = require("@/assets/no-results.webp");
 
 // ---------- Naos Empty State (illustration + heading + description + action) ----------
 export function EmptyState({
@@ -21,18 +22,28 @@ export function EmptyState({
   actionLabel,
   onAction,
   testID,
+  illustration = "empty",
+  footnote,
 }: {
   title: string;
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
   testID?: string;
+  illustration?: "empty" | "noResults";
+  footnote?: string;
 }) {
+  const isNoResults = illustration === "noResults";
   return (
     <View style={emptyStyles.wrap} testID={testID}>
-      <Image source={EMPTY_ILLUSTRATION} style={emptyStyles.img} resizeMode="contain" />
+      <ExpoImage
+        source={isNoResults ? NO_RESULTS_ILLUSTRATION : EMPTY_ILLUSTRATION}
+        style={isNoResults ? emptyStyles.imgWide : emptyStyles.img}
+        contentFit="contain"
+      />
       <Text style={emptyStyles.title}>{title}</Text>
       {description ? <Text style={emptyStyles.desc}>{description}</Text> : null}
+      {footnote ? <Text style={emptyStyles.footnote}>{footnote}</Text> : null}
       {actionLabel && onAction ? (
         <View style={emptyStyles.action}>
           <Button variant="secondary" title={actionLabel} onPress={onAction} testID="empty-state-action" />
@@ -45,6 +56,7 @@ export function EmptyState({
 const emptyStyles = StyleSheet.create({
   wrap: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl, paddingVertical: spacing.xxxl },
   img: { width: 200, height: 120, marginBottom: spacing.lg },
+  imgWide: { width: 220, height: 124, marginBottom: spacing.lg },
   title: { fontSize: font.lg, fontFamily: fonts.bold, color: colors.onSurface, textAlign: "center" },
   desc: {
     fontSize: font.base,
@@ -52,6 +64,14 @@ const emptyStyles = StyleSheet.create({
     textAlign: "center",
     marginTop: spacing.sm,
     lineHeight: 20,
+    maxWidth: 300,
+  },
+  footnote: {
+    fontSize: font.sm,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+    marginTop: spacing.sm,
+    lineHeight: 18,
     maxWidth: 300,
   },
   action: { marginTop: spacing.lg },
