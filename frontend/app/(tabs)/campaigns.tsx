@@ -494,9 +494,9 @@ const styles = StyleSheet.create({
   chipTextActive: { color: colors.onBrandPrimary },
   chipCount: { fontSize: font.sm, fontWeight: "700", color: colors.onSurfaceTertiary, fontVariant: ["tabular-nums"] },
   chipCountActive: { color: colors.onBrandPrimary },
-  // --- Dark summary card ---
+  // --- Summary card (Brevo mint) ---
   summary: {
-    backgroundColor: colors.heroGradientFrom,
+    backgroundColor: colors.mint,
     borderRadius: radius.lg,
     padding: spacing.lg,
   },
@@ -504,24 +504,24 @@ const styles = StyleSheet.create({
     fontSize: font.sm,
     fontWeight: "700",
     letterSpacing: 0.8,
-    color: colors.mintEyebrow,
+    color: colors.successText,
   },
   summaryFigure: {
     fontSize: font.display,
     fontWeight: "800",
-    color: colors.onSurfaceInverse,
+    color: colors.onSurface,
     letterSpacing: -0.5,
     marginTop: 2,
   },
   summaryDivider: {
     height: 1,
-    backgroundColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(27,27,27,0.12)",
     marginVertical: spacing.md,
   },
   summaryStats: { flexDirection: "row" },
   summaryStat: { flex: 1 },
-  summaryStatValue: { fontSize: font.lg, fontWeight: "800", color: colors.onSurfaceInverse },
-  summaryStatLabel: { fontSize: font.sm, color: "rgba(255,255,255,0.75)", marginTop: 2, fontWeight: "600" },
+  summaryStatValue: { fontSize: font.lg, fontWeight: "800", color: colors.onSurface },
+  summaryStatLabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 2, fontWeight: "600" },
   // --- Campaign card ---
   campaignCard: { marginBottom: spacing.md },
   campaignHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
