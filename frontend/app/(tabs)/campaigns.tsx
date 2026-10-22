@@ -7,13 +7,15 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
-import { StateView, Skeleton, Card, StatusBadge, EmptyState } from "@/src/components/common";
+import { StateView, Skeleton, Card, StatusBadge, EmptyState, statusVisual } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { usePrefs } from "@/src/hooks/use-prefs";
-import { nf, pctStr, fmtDate } from "@/src/lib/format";
+import { nf, pct2, rate01, fmtDate } from "@/src/lib/format";
+
+const BAR_GREEN = "#0B9A6F"; // Naos positive fill
 
 // Status filter chips. `value` is the real Brevo API status; `null` = All.
 // The transient states inReview + cancelling are folded into a single "Other"
@@ -215,6 +217,7 @@ export default function CampaignsScreen() {
     >
       {chips.map((c) => {
         const active = activeStatus === c.value;
+        const dot = !active && c.value !== null && c.value !== OTHER ? statusVisual(c.value).fg : null;
         return (
           <Pressable
             key={c.value ?? "all"}
@@ -225,6 +228,7 @@ export default function CampaignsScreen() {
             accessibilityState={{ selected: active }}
             accessibilityLabel={`${c.label}, ${chipCount(c.value)}`}
           >
+            {dot ? <View style={[styles.chipDot, { backgroundColor: dot }]} /> : null}
             <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.label}</Text>
             <Text style={[styles.chipCount, active && styles.chipCountActive]}>{chipCount(c.value)}</Text>
           </Pressable>
@@ -240,11 +244,14 @@ export default function CampaignsScreen() {
       <View style={styles.summaryDivider} />
       <View style={styles.summaryStats}>
         <SummaryStat label="Campaigns" value={nf(campaigns.length)} />
-        <SummaryStat label="Avg open" value={pctStr(totalViews, totalDelivered)} />
-        <SummaryStat label="Avg click" value={pctStr(totalClicks, totalDelivered)} />
+        <SummaryStat label="Avg open" value={pct2(totalViews, totalDelivered)} />
+        <SummaryStat label="Avg click" value={pct2(totalClicks, totalDelivered)} />
       </View>
     </View>
   );
+
+  const filtering = activeStatus !== null || query.trim().length > 0;
+  const hideHeading = filtering && visibleCampaigns.length === 0;
 
   const listHeader = (
     <View>
@@ -252,12 +259,13 @@ export default function CampaignsScreen() {
       {searchBox}
       {chipRow}
       {summaryCard}
-      <Text style={styles.sectionTitle}>Recent campaigns</Text>
+      {hideHeading ? null : <Text style={styles.sectionTitle}>Recent campaigns</Text>}
     </View>
   );
 
   const renderItem = ({ item }: { item: Campaign }) => {
     const g = item.statistics?.globalStats || {};
+    const isSent = (g.sent || 0) > 0;
     return (
       <Pressable
         testID={`campaign-card-${item.id}`}
@@ -276,9 +284,9 @@ export default function CampaignsScreen() {
           </Text>
           <Text style={styles.campaignDate}>{fmtDate(item.sentDate || item.createdAt)}</Text>
           <View style={styles.miniStats}>
-            <MiniStat label="Opens" value={pctStr(g.uniqueViews, g.delivered)} />
+            <MiniStat label="Opens" value={pct2(g.uniqueViews, g.delivered)} rate={isSent ? rate01(g.uniqueViews, g.delivered) : undefined} />
             <View style={styles.miniDivider} />
-            <MiniStat label="Clicks" value={pctStr(g.uniqueClicks, g.delivered)} />
+            <MiniStat label="Clicks" value={pct2(g.uniqueClicks, g.delivered)} rate={isSent ? rate01(g.uniqueClicks, g.delivered) : undefined} />
             <View style={styles.miniDivider} />
             <MiniStat label="Delivered" value={nf(g.delivered)} />
           </View>
@@ -286,8 +294,6 @@ export default function CampaignsScreen() {
       </Pressable>
     );
   };
-
-  const filtering = activeStatus !== null || query.trim().length > 0;
 
   return (
     <View style={styles.container}>
@@ -325,7 +331,7 @@ export default function CampaignsScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           ListEmptyComponent={
-            <View style={{ paddingTop: spacing.xl }}>
+            <View style={{ paddingTop: spacing.lg }}>
               {filtering ? (
                 <EmptyState
                   illustration="noResults"
@@ -401,11 +407,18 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function MiniStat({ label, value, rate }: { label: string; value: string; rate?: number }) {
+  const fill =
+    rate === undefined || rate <= 0 ? null : rate < 1 ? { width: 2 as const } : { width: `${Math.min(rate, 100)}%` as const };
   return (
     <View style={styles.miniStat}>
       <Text style={styles.miniValue}>{value}</Text>
       <Text style={styles.miniLabel}>{label}</Text>
+      {rate !== undefined ? (
+        <View style={styles.miniBarTrack}>
+          {fill ? <View style={[styles.miniBarFill, fill]} /> : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -476,13 +489,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chipActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
+  chipDot: { width: 6, height: 6, borderRadius: 3 },
   chipText: { fontSize: font.base, fontWeight: "600", color: colors.onSurface },
   chipTextActive: { color: colors.onBrandPrimary },
   chipCount: { fontSize: font.sm, fontWeight: "700", color: colors.onSurfaceTertiary, fontVariant: ["tabular-nums"] },
   chipCountActive: { color: colors.onBrandPrimary },
   // --- Dark summary card ---
   summary: {
-    backgroundColor: colors.surfaceInverse,
+    backgroundColor: colors.heroGradientFrom,
     borderRadius: radius.lg,
     padding: spacing.lg,
   },
@@ -490,7 +504,7 @@ const styles = StyleSheet.create({
     fontSize: font.sm,
     fontWeight: "700",
     letterSpacing: 0.8,
-    color: "rgba(255,255,255,0.55)",
+    color: colors.mintEyebrow,
   },
   summaryFigure: {
     fontSize: font.display,
@@ -507,7 +521,7 @@ const styles = StyleSheet.create({
   summaryStats: { flexDirection: "row" },
   summaryStat: { flex: 1 },
   summaryStatValue: { fontSize: font.lg, fontWeight: "800", color: colors.onSurfaceInverse },
-  summaryStatLabel: { fontSize: font.sm, color: "rgba(255,255,255,0.55)", marginTop: 2, fontWeight: "600" },
+  summaryStatLabel: { fontSize: font.sm, color: "rgba(255,255,255,0.75)", marginTop: 2, fontWeight: "600" },
   // --- Campaign card ---
   campaignCard: { marginBottom: spacing.md },
   campaignHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
@@ -526,4 +540,13 @@ const styles = StyleSheet.create({
   miniValue: { fontSize: font.lg, fontWeight: "800", color: colors.onSurface },
   miniLabel: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 2 },
   miniDivider: { width: StyleSheet.hairlineWidth, height: 28, backgroundColor: colors.border },
+  miniBarTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.surfaceSecondary,
+    width: "70%",
+    marginTop: 6,
+    overflow: "hidden",
+  },
+  miniBarFill: { height: 4, borderRadius: 2, backgroundColor: BAR_GREEN },
 });

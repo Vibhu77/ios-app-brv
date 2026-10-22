@@ -54,9 +54,9 @@ export function EmptyState({
 }
 
 const emptyStyles = StyleSheet.create({
-  wrap: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl, paddingVertical: spacing.xxxl },
+  wrap: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl, paddingVertical: spacing.xl },
   img: { width: 200, height: 120, marginBottom: spacing.lg },
-  imgWide: { width: 220, height: 124, marginBottom: spacing.lg },
+  imgWide: { width: 180, height: 102, marginBottom: spacing.lg },
   title: { fontSize: font.lg, fontFamily: fonts.bold, color: colors.onSurface, textAlign: "center" },
   desc: {
     fontSize: font.base,
@@ -101,38 +101,42 @@ const chipStyles = StyleSheet.create({
   },
 });
 
-// ---------- Status badge (Naos Status: tinted pill + colored dot) ----------
+// ---------- Status visual (single source for list, chips and detail) ----------
 const normStatus = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-function statusStyle(status?: string): { bg: string; fg: string; dot: string; label: string } {
+export type StatusVisual = { bg: string; fg: string; label: string };
+
+// One mapping used by the card badge, the filter chip dots and the detail.
+export function statusVisual(status?: string): StatusVisual {
   switch (normStatus(status)) {
     case "sent":
-      return { bg: colors.successBg, fg: colors.successText, dot: colors.success, label: "Sent" };
-    case "suspended":
-      return { bg: colors.errorBg, fg: colors.errorText, dot: colors.error, label: "Suspended" };
-    case "inprocess":
-    case "running":
-      return { bg: colors.warningBg, fg: colors.warningText, dot: colors.warning, label: "Running" };
+      return { bg: colors.successBg, fg: colors.successText, label: "Sent" };
+    case "archive":
+    case "archived":
+      return { bg: colors.successBg, fg: colors.successText, label: "Archived" };
     case "queued":
     case "scheduled":
-      return { bg: colors.infoBg, fg: colors.infoText, dot: colors.accent, label: "Scheduled" };
+      return { bg: colors.infoBg, fg: colors.infoText, label: "Scheduled" };
+    case "inprocess":
+    case "running":
+      return { bg: colors.infoBg, fg: colors.infoText, label: "Running" };
+    case "suspended":
+      return { bg: colors.warningBg, fg: colors.warningText, label: "Suspended" };
+    case "cancelled":
+    case "canceled":
+      return { bg: colors.errorBg, fg: colors.errorText, label: "Cancelled" };
     case "draft":
-      return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, dot: colors.onSurfaceSecondary, label: "Draft" };
+      return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, label: "Draft" };
     default:
-      return {
-        bg: colors.surfaceSecondary,
-        fg: colors.onSurfaceSecondary,
-        dot: colors.onSurfaceSecondary,
-        label: titleCase(status || "draft"),
-      };
+      return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, label: titleCase(status || "draft") };
   }
 }
 
 export function StatusBadge({ status }: { status?: string }) {
-  const s = statusStyle(status);
+  const s = statusVisual(status);
   return (
     <View style={[badgeStyles.badge, { backgroundColor: s.bg }]}>
-      <View style={[badgeStyles.dot, { backgroundColor: s.dot }]} />
+      <View style={[badgeStyles.dot, { backgroundColor: s.fg }]} />
       <Text style={[badgeStyles.badgeText, { color: s.fg }]}>{s.label}</Text>
     </View>
   );
@@ -152,16 +156,35 @@ const badgeStyles = StyleSheet.create({
 });
 
 // ---------- Avatar ----------
-export function Avatar({ label, size = 44 }: { label: string; size?: number }) {
+// Deterministic tinted palette (Naos). Same contact id -> same colour.
+const AVATAR_PALETTE: { bg: string; fg: string }[] = [
+  { bg: "hsl(103, 94%, 93.5%)", fg: "hsl(103, 12%, 38%)" }, // mint
+  { bg: "hsl(164, 52%, 95.9%)", fg: "hsl(158, 100%, 20.8%)" }, // forest
+  { bg: "hsl(244, 70%, 96.1%)", fg: "hsl(245, 43%, 36.5%)" }, // iris
+  { bg: "hsl(209, 100%, 95%)", fg: "hsl(209, 64%, 37%)" }, // sky
+  { bg: "hsl(16, 100%, 97.1%)", fg: "hsl(14, 60%, 39.6%)" }, // coral
+  { bg: "hsl(47, 100%, 96%)", fg: "hsl(47, 99%, 28%)" }, // sun
+];
+
+function avatarColorFor(id: string | number) {
+  const s = String(id);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+}
+
+export function Avatar({ label, size = 44, colorId }: { label: string; size?: number; colorId?: string | number }) {
   const initials = getInitials(label);
+  const tinted = colorId !== undefined ? avatarColorFor(colorId) : null;
   return (
     <View
       style={[
         styles.avatar,
         { width: size, height: size, borderRadius: size / 2 },
+        tinted && { backgroundColor: tinted.bg },
       ]}
     >
-      <Text style={[styles.avatarText, { fontSize: size * 0.36 }]}>{initials}</Text>
+      <Text style={[styles.avatarText, { fontSize: size * 0.36 }, tinted && { color: tinted.fg }]}>{initials}</Text>
     </View>
   );
 }

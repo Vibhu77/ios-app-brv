@@ -158,6 +158,7 @@ export function makeContacts(): (Contact & { ext_id?: string })[] {
     mkContact(1006, "", { FIRSTNAME: "Ext", LASTNAME: "Id" }, "crm-ext-9001"), // ext_id only
     mkContact(1007, "legacy.phone@acme-demo.com", { FIRSTNAME: "Legacy", LASTNAME: "Phone", SMS: "0049-177-legacy" }), // unparseable legacy phone
   ];
+  edge[1].emailBlacklisted = true; // "Email Only" is unsubscribed (demo edge case)
 
   // --- ~53 generated contacts ---
   const gen: (Contact & { ext_id?: string })[] = [];

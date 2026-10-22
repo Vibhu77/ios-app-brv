@@ -13,6 +13,7 @@ import { brevo, Contact } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { usePrefs } from "@/src/hooks/use-prefs";
+import { nf } from "@/src/lib/format";
 
 function contactName(c: Contact) {
   const a = c.attributes || {};
@@ -258,7 +259,7 @@ export default function ContactsScreen() {
     <View style={styles.headerBlock}>
       <LargeTitle
         title="Contacts"
-        right={<Text style={styles.count}>{total ?? contacts.length}</Text>}
+        right={<Text style={styles.count}>{`${nf(total ?? contacts.length)} contacts`}</Text>}
       />
       {searchBox}
     </View>
@@ -299,16 +300,31 @@ export default function ContactsScreen() {
         onPress={() => router.push(`/contact/${c.id}`)}
         style={({ pressed }) => [styles.row, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface }]}
       >
-        <Avatar label={name || c.email || String(phone) || "?"} />
+        <Avatar label={name || c.email || String(phone) || "?"} colorId={c.id} />
         <View style={styles.rowText}>
           <Text style={styles.rowPrimary} numberOfLines={1}>
             {primary}
           </Text>
-          {secondary ? (
-            <Text style={styles.rowSecondary} numberOfLines={1}>
-              {secondary}
-            </Text>
+          {secondary || c.emailBlacklisted ? (
+            <View style={styles.rowSecondLine}>
+              {secondary ? (
+                <Text style={styles.rowSecondary} numberOfLines={1}>
+                  {secondary}
+                </Text>
+              ) : null}
+              {c.emailBlacklisted ? (
+                <View style={styles.unsubBadge}>
+                  <Text style={styles.unsubBadgeText}>Unsubscribed</Text>
+                </View>
+              ) : null}
+            </View>
           ) : null}
+        </View>
+        <View style={styles.channels}>
+          {c.email ? <Ionicons name="mail" size={14} color={colors.onSurfaceTertiary} /> : null}
+          {a.SMS ? <Ionicons name="chatbubble" size={14} color={colors.onSurfaceTertiary} /> : null}
+          {a.WHATSAPP ? <Ionicons name="logo-whatsapp" size={14} color={colors.onSurfaceTertiary} /> : null}
+          {a.LANDLINE_NUMBER ? <Ionicons name="call" size={14} color={colors.onSurfaceTertiary} /> : null}
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
       </Pressable>
@@ -379,7 +395,6 @@ export default function ContactsScreen() {
                 illustration="noResults"
                 title="We couldn't find what you're looking for."
                 description="Try different keyword"
-                footnote="Names are matched exactly in Brevo; emails and phone numbers by the full value."
                 actionLabel="Clear keyword"
                 onAction={() => setQuery("")}
                 testID="contacts-empty"
@@ -435,7 +450,7 @@ export default function ContactsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   headerBlock: { paddingHorizontal: spacing.lg },
-  count: { fontSize: font.base, fontWeight: "700", color: colors.onSurfaceTertiary, paddingBottom: 6 },
+  count: { fontSize: font.base, fontWeight: "700", color: colors.onSurfaceSecondary, paddingBottom: 6 },
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -457,7 +472,16 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1 },
   rowPrimary: { fontSize: font.lg, fontWeight: "600", color: colors.onSurface },
-  rowSecondary: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  rowSecondLine: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 2 },
+  rowSecondary: { fontSize: font.base, color: colors.onSurfaceSecondary, flexShrink: 1 },
+  unsubBadge: {
+    backgroundColor: colors.errorBg,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  unsubBadgeText: { fontSize: 11, fontWeight: "700", color: colors.errorText },
+  channels: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginRight: spacing.xs },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 72 },
   skRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
   footer: { paddingVertical: spacing.lg, alignItems: "center" },

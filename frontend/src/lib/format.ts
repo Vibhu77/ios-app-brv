@@ -7,6 +7,21 @@ export const pctStr = (num?: number, den?: number) => {
   return `${(((num || 0) / den) * 100).toFixed(1)}%`;
 };
 
+// 2-decimal rate like the campaign detail ("14.30%", "0%" when zero). Never NaN.
+export const pct2 = (num?: number, den?: number) => {
+  if (!den || !num) return "0%";
+  const v = (num / den) * 100;
+  if (!isFinite(v) || v === 0) return "0%";
+  return `${v.toFixed(2)}%`;
+};
+
+// Rate clamped to 0–100 for progress bars.
+export const rate01 = (num?: number, den?: number) => {
+  if (!den || !num) return 0;
+  const v = (num / den) * 100;
+  return isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+};
+
 export const pctVal = (num?: number, den?: number) => (den ? (num || 0) / den : 0);
 
 export const fmtDate = (s?: string) => {
