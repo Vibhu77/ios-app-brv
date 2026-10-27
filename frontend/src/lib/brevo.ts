@@ -117,6 +117,19 @@ export type Campaign = {
   statistics?: { globalStats?: GlobalStats };
 };
 
+export type Readiness = {
+  status?: string;
+  sender?: { name?: string; email?: string } | null;
+  subject?: string | null;
+  recipients: {
+    lists: { id: number; name: string; count: number }[];
+    segments: { id: number; name: string }[];
+  };
+  hasDesign: boolean;
+  ready: boolean;
+  missing: string[];
+};
+
 export type Contact = {
   id: number;
   email: string;
@@ -163,6 +176,15 @@ const realBrevo = {
     req(`/brevo/contacts/${encodeURIComponent(String(id))}`, token, { method: "DELETE" }),
   searchContactsByName: (token: string, name: string) =>
     req(`/brevo/contacts-search?name=${encodeURIComponent(name)}`, token),
+  getCampaignReadiness: (token: string, id: number | string) =>
+    req(`/brevo/campaigns/${id}/readiness`, token),
+  sendCampaignNow: (token: string, id: number | string) =>
+    req(`/brevo/campaigns/${id}/send-now`, token, { method: "POST" }),
+  scheduleCampaign: (token: string, id: number | string, scheduledAt: string) =>
+    req(`/brevo/campaigns/${id}/schedule`, token, {
+      method: "POST",
+      body: JSON.stringify({ scheduledAt }),
+    }),
 };
 
 // DEMO DATA mode: choose the client PER CALL based on the session token, so a

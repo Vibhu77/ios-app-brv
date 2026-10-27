@@ -1,17 +1,60 @@
 import React, { useCallback, useState } from "react";
-import { StyleSheet, Text, View, ScrollView, Modal } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Modal, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
 import { StateView, Loader, StatusBadge, Button, statusVisual } from "@/src/components/common";
+import { ConfirmDialog } from "@/src/components/ConfirmDialog";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
-import { brevo, Campaign } from "@/src/lib/brevo";
+import { brevo, Campaign, Readiness } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { nf, fmtDateTime } from "@/src/lib/format";
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+// Device timezone offset in minutes (east of UTC positive).
+const tzOffsetMin = () => -new Date().getTimezoneOffset();
+
+// "Asia/Kolkata GMT +05:30" like Brevo web.
+function tzLabel() {
+  let name = "";
+  try {
+    name = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    name = "";
+  }
+  const off = tzOffsetMin();
+  const sign = off >= 0 ? "+" : "-";
+  const abs = Math.abs(off);
+  const gmt = `GMT ${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+  return name ? `${name} ${gmt}` : gmt;
+}
+
+// Local Date -> ISO 8601 with the device's offset, e.g. 2026-11-09T11:00:00+05:30.
+function toOffsetISO(d: Date) {
+  const off = tzOffsetMin();
+  const sign = off >= 0 ? "+" : "-";
+  const abs = Math.abs(off);
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:00${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
+  );
+}
+
+const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const dayLabel = (d: Date) => `${WEEKDAY[d.getDay()]}, ${d.getDate()} ${MONTH[d.getMonth()]} ${d.getFullYear()}`;
+
+const MISSING_LABEL: Record<string, string> = {
+  sender: "Sender",
+  recipients: "Recipients",
+  subject: "Subject",
+  design: "Design",
+};
 
 // Rate 0–100 for a numerator/denominator, never NaN/Infinity.
 const ratePct = (num?: number, den?: number) => {
@@ -79,6 +122,18 @@ export default function CampaignDetail() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // --- Draft send/schedule ---
+  const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [sendMode, setSendMode] = useState<"now" | "later">("now");
+  const [dayOffset, setDayOffset] = useState(0);
+  const [hour, setHour] = useState(() => Math.min(23, new Date().getHours() + 1));
+  const [minute, setMinute] = useState(0);
+  const [openPicker, setOpenPicker] = useState<"date" | "hour" | "minute" | null>(null);
+  const [confirmMode, setConfirmMode] = useState<null | "now" | "later">(null);
+  const [sending, setSending] = useState(false);
+  const [sheetError, setSheetError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     if (!token) return;
     setError(null);
@@ -86,6 +141,16 @@ export default function CampaignDetail() {
       const res = await brevo.getCampaign(token, id);
       setCampaign(res);
       cache.set(cacheKeys.campaign(id), res);
+      // Readiness only matters for drafts (the only sendable state here).
+      if ((res?.status || "").toLowerCase() === "draft") {
+        try {
+          setReadiness(await brevo.getCampaignReadiness(token, id));
+        } catch {
+          setReadiness(null);
+        }
+      } else {
+        setReadiness(null);
+      }
     } catch (e: any) {
       if (!cache.get<Campaign>(cacheKeys.campaign(id))) setError(e?.message || "Failed to load campaign");
     } finally {
@@ -128,6 +193,66 @@ export default function CampaignDetail() {
   // Bars only for actually-sent campaigns.
   const showBars =
     (g.sent || 0) > 0 && !["draft", "queued", "inreview"].includes(nStatus);
+
+  const isDraft = nStatus === "draft";
+  // Selected schedule moment (local) + display strings.
+  const scheduledDate = (() => {
+    const base = new Date();
+    base.setDate(base.getDate() + dayOffset);
+    return new Date(base.getFullYear(), base.getMonth(), base.getDate(), hour, minute, 0, 0);
+  })();
+  const whenText = `${dayLabel(scheduledDate)}, ${pad(hour)}:${pad(minute)} ${tzLabel()}`;
+
+  // Recipient summary for the confirmation.
+  const lists = readiness?.recipients?.lists || [];
+  const segments = readiness?.recipients?.segments || [];
+  const recipientNames = [...lists.map((l) => l.name), ...segments.map((s) => s.name)].join(", ");
+  const recipientCount = lists.reduce((a, l) => a + (l.count || 0), 0);
+  const recipientLine =
+    recipientCount > 0
+      ? `${nf(recipientCount)} contacts in ${recipientNames}`
+      : recipientNames
+      ? `${recipientNames}`
+      : "your recipients";
+
+  const dateOptions = [...Array(60)].map((_, d) => {
+    const base = new Date();
+    base.setDate(base.getDate() + d);
+    return { offset: d, label: dayLabel(base) };
+  });
+
+  const errText = (e: any) => {
+    const st = e?.upstreamStatus || e?.status;
+    if (st === 402) return "You don't have enough email credits to send this campaign.";
+    if (st === 400 && Array.isArray(e?.detail?.missing)) {
+      return `Complete these steps on Brevo web first: ${e.detail.missing
+        .map((m: string) => MISSING_LABEL[m] || m)
+        .join(", ")}.`;
+    }
+    return e?.message || "Something went wrong. Please try again.";
+  };
+
+  const runSend = async () => {
+    if (sending) return; // ignore repeat taps
+    setSending(true);
+    setSheetError(null);
+    try {
+      if (confirmMode === "now") {
+        await brevo.sendCampaignNow(token, id);
+      } else {
+        await brevo.scheduleCampaign(token, id, toOffsetISO(scheduledDate));
+      }
+      setConfirmMode(null);
+      setScheduleOpen(false);
+      cache.del(cacheKeys.campaigns);
+      toast.show(confirmMode === "now" ? "Campaign sent" : `Campaign scheduled for ${whenText}`, "success");
+      await load(); // status flips to sent/queued; Suspend action reappears
+    } catch (e: any) {
+      setSheetError(errText(e));
+    } finally {
+      setSending(false);
+    }
+  };
 
   const applyStatus = async () => {
     if (!action) return;
@@ -218,6 +343,38 @@ export default function CampaignDetail() {
             <Text style={styles.meta}>{dateText}</Text>
           </View>
 
+          {/* Draft: Schedule (ready) or an info box listing missing steps. */}
+          {isDraft && readiness ? (
+            readiness.ready ? (
+              <View style={styles.actionWrap}>
+                <Button
+                  testID="campaign-schedule-button"
+                  variant="primary"
+                  title="Schedule"
+                  icon="calendar-outline"
+                  onPress={() => {
+                    setSheetError(null);
+                    setScheduleOpen(true);
+                  }}
+                />
+              </View>
+            ) : (
+              <View style={styles.infoBox} testID="campaign-not-ready">
+                <View style={styles.infoHead}>
+                  <Ionicons name="information-circle" size={18} color={colors.infoText} />
+                  <Text style={styles.infoText}>Complete all required steps on Brevo web to send this campaign.</Text>
+                </View>
+                <View style={styles.infoList}>
+                  {readiness.missing.map((m) => (
+                    <Text key={m} style={styles.infoItem}>
+                      {"•  " + (MISSING_LABEL[m] || m)}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            )
+          ) : null}
+
           {/* Visible, labeled Suspend/Resume action (only for applicable states) */}
           {action ? (
             <View style={styles.actionWrap}>
@@ -293,6 +450,160 @@ export default function CampaignDetail() {
           </View>
         </ScrollView>
       )}
+
+      {/* Schedule sheet (drafts) */}
+      <Modal visible={scheduleOpen} transparent animationType="slide" onRequestClose={() => setScheduleOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setScheduleOpen(false)}>
+          <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]} onPress={() => {}}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>Schedule</Text>
+              <Pressable onPress={() => setScheduleOpen(false)} hitSlop={12} testID="schedule-close">
+                <Ionicons name="close" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <ScrollView style={{ maxHeight: 440 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              <Text style={styles.sheetQuestion}>When would you like to send the campaign?</Text>
+
+              <Pressable style={styles.radioRow} onPress={() => setSendMode("now")} testID="schedule-mode-now">
+                <Ionicons
+                  name={sendMode === "now" ? "radio-button-on" : "radio-button-off"}
+                  size={20}
+                  color={sendMode === "now" ? colors.brandPrimary : colors.onSurfaceTertiary}
+                />
+                <Text style={styles.radioLabel}>Send now</Text>
+              </Pressable>
+
+              <Pressable style={styles.radioRow} onPress={() => setSendMode("later")} testID="schedule-mode-later">
+                <Ionicons
+                  name={sendMode === "later" ? "radio-button-on" : "radio-button-off"}
+                  size={20}
+                  color={sendMode === "later" ? colors.brandPrimary : colors.onSurfaceTertiary}
+                />
+                <Text style={styles.radioLabel}>Schedule for later</Text>
+              </Pressable>
+
+              {sendMode === "later" ? (
+                <View style={styles.laterWrap}>
+                  <Text style={styles.fieldLabel}>Date</Text>
+                  <Pressable
+                    style={styles.select}
+                    onPress={() => setOpenPicker(openPicker === "date" ? null : "date")}
+                    testID="schedule-date"
+                  >
+                    <Text style={styles.selectText}>{dayLabel(scheduledDate)}</Text>
+                    <Ionicons name="chevron-down" size={18} color={colors.onSurface} />
+                  </Pressable>
+                  {openPicker === "date" ? (
+                    <ScrollView style={styles.pickerList} nestedScrollEnabled>
+                      {dateOptions.map((o) => (
+                        <Pressable
+                          key={o.offset}
+                          style={styles.pickerItem}
+                          onPress={() => {
+                            setDayOffset(o.offset);
+                            setOpenPicker(null);
+                          }}
+                        >
+                          <Text style={styles.pickerItemText}>{o.label}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  ) : null}
+
+                  <Text style={styles.fieldLabel}>Time</Text>
+                  <View style={styles.timeRow}>
+                    <Pressable
+                      style={[styles.select, styles.timeSelect]}
+                      onPress={() => setOpenPicker(openPicker === "hour" ? null : "hour")}
+                      testID="schedule-hour"
+                    >
+                      <Text style={styles.selectText}>{pad(hour)}</Text>
+                      <Ionicons name="chevron-down" size={18} color={colors.onSurface} />
+                    </Pressable>
+                    <Pressable
+                      style={[styles.select, styles.timeSelect]}
+                      onPress={() => setOpenPicker(openPicker === "minute" ? null : "minute")}
+                      testID="schedule-minute"
+                    >
+                      <Text style={styles.selectText}>{pad(minute)}</Text>
+                      <Ionicons name="chevron-down" size={18} color={colors.onSurface} />
+                    </Pressable>
+                  </View>
+                  {openPicker === "hour" ? (
+                    <ScrollView style={styles.pickerList} nestedScrollEnabled>
+                      {[...Array(24)].map((_, h) => (
+                        <Pressable
+                          key={h}
+                          style={styles.pickerItem}
+                          onPress={() => {
+                            setHour(h);
+                            setOpenPicker(null);
+                          }}
+                        >
+                          <Text style={styles.pickerItemText}>{pad(h)}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  ) : null}
+                  {openPicker === "minute" ? (
+                    <ScrollView style={styles.pickerList} nestedScrollEnabled>
+                      {[...Array(12)].map((_, i) => (
+                        <Pressable
+                          key={i}
+                          style={styles.pickerItem}
+                          onPress={() => {
+                            setMinute(i * 5);
+                            setOpenPicker(null);
+                          }}
+                        >
+                          <Text style={styles.pickerItemText}>{pad(i * 5)}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  ) : null}
+
+                  <Text style={styles.tzText}>{tzLabel()}</Text>
+                </View>
+              ) : null}
+            </ScrollView>
+
+            <View style={styles.sheetFooter}>
+              <Button
+                testID="schedule-submit"
+                variant="primary"
+                title={sendMode === "now" ? "Send now" : "Schedule"}
+                onPress={() => {
+                  setSheetError(null);
+                  setConfirmMode(sendMode === "now" ? "now" : "later");
+                }}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Send/schedule confirmation */}
+      <ConfirmDialog
+        visible={confirmMode !== null}
+        icon={confirmMode === "now" ? "send-outline" : "calendar-outline"}
+        title={confirmMode === "now" ? "Send this campaign now?" : "Schedule this campaign?"}
+        body={
+          confirmMode === "now"
+            ? `It will go to ${recipientLine}. This can't be undone.`
+            : `It will go to ${recipientLine} on ${whenText}.`
+        }
+        confirmLabel={confirmMode === "now" ? "Send campaign" : "Schedule campaign"}
+        cancelLabel="Keep as draft"
+        busy={sending}
+        errorText={sheetError || undefined}
+        onConfirm={runSend}
+        onCancel={() => {
+          if (sending) return;
+          setConfirmMode(null);
+          setSheetError(null);
+        }}
+        testID="campaign-send-confirm"
+      />
 
       {/* Confirmation modal */}
       <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
@@ -393,6 +704,61 @@ const styles = StyleSheet.create({
 
   // Naos primary button — charcoal rounded rectangle (not a pill)
   actionWrap: { alignItems: "flex-start", marginTop: spacing.lg },
+
+  // Not-ready info box
+  infoBox: {
+    marginTop: spacing.lg,
+    backgroundColor: colors.infoBg,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  infoHead: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
+  infoText: { flex: 1, fontSize: font.base, color: colors.infoText, lineHeight: 20, fontFamily: fonts.semibold },
+  infoList: { marginTop: spacing.sm, paddingLeft: 26, gap: 2 },
+  infoItem: { fontSize: font.base, color: colors.infoText },
+
+  // Schedule sheet
+  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+  },
+  sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sheetTitle: { fontSize: font.xl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.3 },
+  sheetQuestion: { fontSize: font.lg, fontFamily: fonts.semibold, color: colors.onSurface, marginTop: spacing.md, marginBottom: spacing.sm },
+  radioRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
+  radioLabel: { fontSize: font.lg, color: colors.onSurface },
+  laterWrap: { paddingLeft: 28, paddingTop: spacing.xs },
+  fieldLabel: { fontSize: font.base, fontFamily: fonts.semibold, color: colors.onSurface, marginTop: spacing.md, marginBottom: spacing.xs },
+  select: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    height: 48,
+    backgroundColor: colors.surface,
+  },
+  selectText: { fontSize: font.lg, color: colors.onSurface },
+  timeRow: { flexDirection: "row", gap: spacing.md },
+  timeSelect: { flex: 1 },
+  pickerList: {
+    maxHeight: 180,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    marginTop: spacing.xs,
+    backgroundColor: colors.surface,
+  },
+  pickerItem: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  pickerItemText: { fontSize: font.lg, color: colors.onSurface },
+  tzText: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.sm },
+  sheetFooter: { marginTop: spacing.lg },
 
   section: {
     fontSize: font.lg,

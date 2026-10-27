@@ -159,4 +159,50 @@ export const demoBrevo = {
     });
     return { contacts: matches.map((c) => ({ ...c })) };
   },
+
+  // --- Draft send / schedule (mutate status in memory) ---
+  getCampaignReadiness: async (_token: string, id: number | string) => {
+    await delay(100);
+    const c = campaigns.find((x) => String(x.id) === String(id));
+    if (!c) throw demoError(404, "Campaign not found");
+    return demoReadiness(c);
+  },
+  sendCampaignNow: async (_token: string, id: number | string) => {
+    await delay(220);
+    const c = campaigns.find((x) => String(x.id) === String(id));
+    if (!c) throw demoError(404, "Campaign not found");
+    const r = demoReadiness(c);
+    if (!r.ready) throw demoError(400, "Campaign is not ready to send");
+    c.status = "sent";
+    c.sentDate = new Date().toISOString();
+    return { ok: true };
+  },
+  scheduleCampaign: async (_token: string, id: number | string, scheduledAt: string) => {
+    await delay(220);
+    const c = campaigns.find((x) => String(x.id) === String(id));
+    if (!c) throw demoError(404, "Campaign not found");
+    const t = Date.parse(scheduledAt);
+    if (!t || t <= Date.now() + 5 * 60000) throw demoError(400, "Pick a time at least 5 minutes from now");
+    const r = demoReadiness(c);
+    if (!r.ready) throw demoError(400, "Campaign is not ready to send");
+    c.status = "queued";
+    c.scheduledAt = scheduledAt;
+    return { ok: true, scheduledAt };
+  },
 };
+
+// Demo readiness: sender present for all fixtures; design assumed; one demo
+// list; only the subject can be missing (fixture draft #7).
+function demoReadiness(c: Campaign) {
+  const sender = c.sender?.email ? { name: c.sender.name, email: c.sender.email } : null;
+  const subject = c.subject || null;
+  const hasDesign = true;
+  const lists = [{ id: 1, name: "Demo list (just me)", count: 1 }];
+  const missing: string[] = [];
+  if (!sender?.email) missing.push("sender");
+  if (!lists.length) missing.push("recipients");
+  if (!subject) missing.push("subject");
+  if (!hasDesign) missing.push("design");
+  const ready = String(c.status || "").toLowerCase() === "draft" && missing.length === 0;
+  return { status: c.status, sender, subject, recipients: { lists, segments: [] }, hasDesign, ready, missing };
+}

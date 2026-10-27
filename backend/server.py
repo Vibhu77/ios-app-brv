@@ -6,6 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import time
 import secrets
+from datetime import datetime, timezone, timedelta
 import asyncio
 import logging
 import urllib.parse
@@ -502,6 +503,133 @@ async def update_campaign_status(campaign_id: int, request: Request, sess: dict 
     body = await request.json()
     await brevo_authed("PUT", f"/emailCampaigns/{campaign_id}/status", sess, json_body=body)
     return {"ok": True, "status": body.get("status")}
+
+
+# ---------------- Draft send / schedule (strict: real emails) ----------------
+def _recipient_ids(arr):
+    """Normalize a recipients array (ids or {id:...}) to a flat id list."""
+    out = []
+    for x in arr or []:
+        if isinstance(x, dict):
+            if x.get("id") is not None:
+                out.append(x["id"])
+        elif x is not None:
+            out.append(x)
+    return out
+
+
+async def _build_readiness(campaign_id: int, sess: dict) -> dict:
+    """Server-side readiness for a draft. Mirrors Brevo web's Schedule gating.
+    Returns a dict with private _listIds/_segmentIds for the send/schedule
+    endpoints; the public endpoint strips underscore keys."""
+    camp = await brevo_authed("GET", f"/emailCampaigns/{campaign_id}", sess)
+    status = camp.get("status")
+
+    sender_raw = camp.get("sender") or {}
+    sender = (
+        {"name": sender_raw.get("name"), "email": sender_raw.get("email")}
+        if sender_raw.get("email")
+        else None
+    )
+    subject = camp.get("subject") or None
+    html = camp.get("htmlContent") or ""
+    has_design = bool(html and str(html).strip())
+
+    recips = camp.get("recipients") or {}
+    list_ids = _recipient_ids(recips.get("listIds") or recips.get("lists"))
+    seg_ids = _recipient_ids(recips.get("segmentIds") or recips.get("segments"))
+
+    lists = []
+    for lid in list_ids:
+        try:
+            l = await brevo_authed("GET", f"/contacts/lists/{lid}", sess)
+            count = l.get("totalSubscribers")
+            if count is None:
+                count = l.get("uniqueSubscribers")
+            lists.append({"id": lid, "name": l.get("name") or f"List {lid}", "count": count or 0})
+        except HTTPException:
+            lists.append({"id": lid, "name": f"List {lid}", "count": 0})
+
+    segments = []
+    if seg_ids:
+        names = {}
+        try:
+            data = await brevo_authed("GET", "/contacts/segments", sess, params={"limit": 50, "offset": 0})
+            for s in data.get("segments") or []:
+                names[s.get("id")] = s.get("segmentName") or s.get("name")
+        except HTTPException:
+            pass
+        for sid in seg_ids:
+            segments.append({"id": sid, "name": names.get(sid) or f"Segment {sid}"})
+
+    missing = []
+    if not (sender and sender.get("email")):
+        missing.append("sender")
+    if not (lists or segments):
+        missing.append("recipients")
+    if not subject:
+        missing.append("subject")
+    if not has_design:
+        missing.append("design")
+
+    ready = str(status or "").lower() == "draft" and not missing
+
+    return {
+        "status": status,
+        "sender": sender,
+        "subject": subject,
+        "recipients": {"lists": lists, "segments": segments},
+        "hasDesign": has_design,
+        "ready": ready,
+        "missing": missing,
+        "_listIds": list_ids,
+        "_segmentIds": seg_ids,
+    }
+
+
+@api_router.get("/brevo/campaigns/{campaign_id}/readiness")
+async def campaign_readiness(campaign_id: int, sess: dict = Depends(get_session)):
+    r = await _build_readiness(campaign_id, sess)
+    return {k: v for k, v in r.items() if not k.startswith("_")}
+
+
+@api_router.post("/brevo/campaigns/{campaign_id}/send-now")
+async def campaign_send_now(campaign_id: int, sess: dict = Depends(get_session)):
+    r = await _build_readiness(campaign_id, sess)
+    if not r["ready"]:
+        raise HTTPException(status_code=400, detail={"message": "Campaign is not ready to send", "missing": r["missing"]})
+    # Brevo returns 204; brevo() yields {}. 400/402 (e.g. no credits) pass through.
+    await brevo_authed("POST", f"/emailCampaigns/{campaign_id}/sendNow", sess)
+    return {"ok": True}
+
+
+@api_router.post("/brevo/campaigns/{campaign_id}/schedule")
+async def campaign_schedule(campaign_id: int, request: Request, sess: dict = Depends(get_session)):
+    body = await request.json()
+    scheduled_at = (body or {}).get("scheduledAt")
+    if not scheduled_at or not isinstance(scheduled_at, str):
+        raise HTTPException(status_code=400, detail={"message": "scheduledAt is required"})
+    try:
+        dt = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            raise ValueError("missing timezone")
+    except ValueError:
+        raise HTTPException(status_code=400, detail={"message": "Invalid scheduledAt; include a timezone offset"})
+    if dt <= datetime.now(timezone.utc) + timedelta(minutes=5):
+        raise HTTPException(status_code=400, detail={"message": "Pick a time at least 5 minutes from now"})
+
+    r = await _build_readiness(campaign_id, sess)
+    if not r["ready"]:
+        raise HTTPException(status_code=400, detail={"message": "Campaign is not ready to send", "missing": r["missing"]})
+
+    # Brevo requires re-sending the SAME recipient type used at creation.
+    put_body: dict = {"scheduledAt": scheduled_at}
+    if r["_listIds"]:
+        put_body["recipients"] = {"listIds": r["_listIds"]}
+    elif r["_segmentIds"]:
+        put_body["recipients"] = {"segmentIds": r["_segmentIds"]}
+    await brevo_authed("PUT", f"/emailCampaigns/{campaign_id}", sess, json_body=put_body)
+    return {"ok": True, "scheduledAt": scheduled_at}
 
 
 @api_router.get("/brevo/contacts")
