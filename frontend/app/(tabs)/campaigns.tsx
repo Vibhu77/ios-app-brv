@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, ScrollView, Modal } from "react-native";
+import { StyleSheet, Text, View, Pressable, RefreshControl, TextInput, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "expo-router/js-tabs";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
@@ -7,7 +7,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
-import { StateView, Skeleton, Card, StatusBadge, EmptyState, statusVisual } from "@/src/components/common";
+import { StateView, Skeleton, Card, StatusBadge, EmptyState } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
@@ -17,22 +17,26 @@ import { nf, pct2, rate01, fmtDate } from "@/src/lib/format";
 
 const BAR_GREEN = "#0B9A6F"; // Naos positive fill
 
-// Status filter chips. `value` is the real Brevo API status; `null` = All.
-// The transient states inReview + cancelling are folded into a single "Other"
-// chip (value "__other__") rather than each getting their own slot.
-const OTHER = "__other__";
-const OTHER_STATUSES = ["inReview", "cancelling"];
-type ChipDef = { label: string; value: string | null };
-const CHIP_DEFS: ChipDef[] = [
-  { label: "All", value: null },
-  { label: "Draft", value: "draft" },
-  { label: "Sent", value: "sent" },
-  { label: "Scheduled", value: "queued" },
-  { label: "Running", value: "inProcess" },
-  { label: "Suspended", value: "suspended" },
-  { label: "Archived", value: "archive" },
-  { label: "Cancelled", value: "cancelled" },
-  { label: "Other", value: OTHER },
+// Status selector — labels, order and dot colours match Brevo web exactly.
+// `match` holds the raw Brevo API status values (case-insensitive); null = All.
+const DOT = {
+  grey: colors.onSurfaceTertiary,
+  green: "#0B9A6F",
+  purple: "#6358DE",
+  orange: "#FF6E3D",
+  red: "#FF3A51",
+};
+type StatusOpt = { key: string; label: string; dot: string | null; match: string[] | null };
+const STATUS_OPTS: StatusOpt[] = [
+  { key: "all", label: "All statuses", dot: null, match: null },
+  { key: "draft", label: "Draft", dot: DOT.grey, match: ["draft"] },
+  { key: "sent", label: "Sent", dot: DOT.green, match: ["sent"] },
+  { key: "queued", label: "Scheduled", dot: DOT.purple, match: ["queued"] },
+  { key: "inProcess", label: "Running", dot: DOT.orange, match: ["inProcess"] },
+  { key: "suspended", label: "Suspended", dot: DOT.red, match: ["suspended"] },
+  { key: "archive", label: "Archived", dot: DOT.grey, match: ["archive"] },
+  { key: "rejected", label: "Rejected", dot: DOT.red, match: ["rejected"] },
+  { key: "cancelled", label: "Canceled", dot: DOT.red, match: ["cancelled", "cancelling"] },
 ];
 
 // Client-side sort options (no new API calls).
@@ -55,7 +59,8 @@ export default function CampaignsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [activeStatus, setActiveStatus] = useState<string | null>(null);
+  const [statusKey, setStatusKey] = useState<string>("all");
+  const [statusOpen, setStatusOpen] = useState(false);
   const [sort, setSort] = useState<SortKey>("newest");
   const [sortOpen, setSortOpen] = useState(false);
 
@@ -94,29 +99,18 @@ export default function CampaignsScreen() {
   const totalViews = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.uniqueViews || 0), 0);
   const totalClicks = sentCampaigns.reduce((a, c) => a + (c.statistics?.globalStats?.uniqueClicks || 0), 0);
 
-  // --- Chip counts, computed client-side from the already-fetched list ---
-  // No per-status API calls: the backend returns every campaign in one payload,
-  // so these counts are exact for accounts whose campaigns fit the fetch window.
-  const counts = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const c of campaigns) {
-      const s = c.status || "";
-      m[s] = (m[s] || 0) + 1;
-    }
-    return m;
-  }, [campaigns]);
-
-  const chipCount = useCallback(
-    (value: string | null) => {
-      if (value === null) return campaigns.length;
-      if (value === OTHER) return OTHER_STATUSES.reduce((a, s) => a + (counts[s] || 0), 0);
-      return counts[value] || 0;
+  // --- Status counts, computed client-side (case-insensitive) from the loaded
+  // list. No per-status API calls. Includes 0 for unmatched statuses. ---
+  const statusCount = useCallback(
+    (o: StatusOpt) => {
+      if (!o.match) return campaigns.length;
+      const set = new Set(o.match.map((m) => m.toLowerCase()));
+      return campaigns.filter((c) => set.has((c.status || "").toLowerCase())).length;
     },
-    [campaigns.length, counts]
+    [campaigns]
   );
 
-  // All is always shown; other chips appear only when they have matches.
-  const chips = CHIP_DEFS.filter((c) => c.value === null || chipCount(c.value) > 0);
+  const selectedStatus = STATUS_OPTS.find((o) => o.key === statusKey) || STATUS_OPTS[0];
 
   // --- Visible list = status chip + search (name/subject/ID) + sort ---
   // All client-side over the already-loaded list; no new API calls. The
@@ -126,14 +120,11 @@ export default function CampaignsScreen() {
     const rawQ = query.trim().toLowerCase();
     const isHash = rawQ.startsWith("#");
     const q = isHash ? rawQ.slice(1) : rawQ;
+    const statusSet = selectedStatus.match
+      ? new Set(selectedStatus.match.map((m) => m.toLowerCase()))
+      : null;
     const filtered = campaigns.filter((c) => {
-      if (activeStatus !== null) {
-        if (activeStatus === OTHER) {
-          if (!OTHER_STATUSES.includes(c.status || "")) return false;
-        } else if ((c.status || "") !== activeStatus) {
-          return false;
-        }
-      }
+      if (statusSet && !statusSet.has((c.status || "").toLowerCase())) return false;
       if (q) {
         const id = String(c.id).toLowerCase();
         if (isHash) {
@@ -173,7 +164,7 @@ export default function CampaignsScreen() {
         sorted.sort((a, b) => ts(b) - ts(a));
     }
     return sorted;
-  }, [campaigns, activeStatus, query, sort]);
+  }, [campaigns, selectedStatus, query, sort]);
 
   const searchBox = (
     <View style={styles.controlsRow}>
@@ -208,33 +199,20 @@ export default function CampaignsScreen() {
     </View>
   );
 
-  const chipRow = (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.chipsContent}
-      style={styles.chipsRow}
+  const statusSelector = (
+    <Pressable
+      style={styles.statusBtn}
+      onPress={() => setStatusOpen(true)}
+      testID="campaigns-status-button"
+      accessibilityRole="button"
+      accessibilityLabel={`Status filter: ${selectedStatus.label}`}
     >
-      {chips.map((c) => {
-        const active = activeStatus === c.value;
-        const dot = !active && c.value !== null && c.value !== OTHER ? statusVisual(c.value).fg : null;
-        return (
-          <Pressable
-            key={c.value ?? "all"}
-            testID={`campaign-chip-${c.value ?? "all"}`}
-            onPress={() => setActiveStatus(c.value)}
-            style={[styles.chip, active && styles.chipActive]}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            accessibilityLabel={`${c.label}, ${chipCount(c.value)}`}
-          >
-            {dot ? <View style={[styles.chipDot, { backgroundColor: dot }]} /> : null}
-            <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.label}</Text>
-            <Text style={[styles.chipCount, active && styles.chipCountActive]}>{chipCount(c.value)}</Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
+      {selectedStatus.dot ? <View style={[styles.statusBtnDot, { backgroundColor: selectedStatus.dot }]} /> : null}
+      <Text style={styles.statusBtnLabel} numberOfLines={1}>
+        {selectedStatus.label}
+      </Text>
+      <Ionicons name="chevron-down" size={18} color={colors.onSurface} />
+    </Pressable>
   );
 
   const summaryCard = (
@@ -250,14 +228,14 @@ export default function CampaignsScreen() {
     </View>
   );
 
-  const filtering = activeStatus !== null || query.trim().length > 0;
+  const filtering = statusKey !== "all" || query.trim().length > 0;
   const hideHeading = filtering && visibleCampaigns.length === 0;
 
   const listHeader = (
     <View>
       <LargeTitle title="Campaigns" />
       {searchBox}
-      {chipRow}
+      {statusSelector}
       {summaryCard}
       {hideHeading ? null : <Text style={styles.sectionTitle}>Recent campaigns</Text>}
     </View>
@@ -340,7 +318,7 @@ export default function CampaignsScreen() {
                   actionLabel="Clear keyword"
                   onAction={() => {
                     setQuery("");
-                    setActiveStatus(null);
+                    setStatusKey("all");
                   }}
                   testID="campaigns-empty-filtered"
                 />
@@ -391,6 +369,38 @@ export default function CampaignsScreen() {
                 {sort === s.key ? <Ionicons name="checkmark" size={18} color={colors.brandPrimary} /> : null}
               </Pressable>
             ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={statusOpen} transparent animationType="fade" onRequestClose={() => setStatusOpen(false)}>
+        <Pressable style={styles.sortBackdrop} onPress={() => setStatusOpen(false)}>
+          <Pressable style={[styles.sortSheet, { paddingBottom: insets.bottom + spacing.md }]} onPress={() => {}}>
+            <Text style={styles.sortTitle}>Status</Text>
+            {STATUS_OPTS.map((o) => {
+              const active = statusKey === o.key;
+              return (
+                <Pressable
+                  key={o.key}
+                  style={[styles.statusOption, active && styles.statusOptionActive]}
+                  onPress={() => {
+                    setStatusKey(o.key);
+                    setStatusOpen(false);
+                  }}
+                  testID={`status-option-${o.key}`}
+                >
+                  <View style={styles.statusOptLeft}>
+                    {o.dot ? (
+                      <View style={[styles.statusDot, { backgroundColor: o.dot }]} />
+                    ) : (
+                      <View style={styles.statusDotSpacer} />
+                    )}
+                    <Text style={styles.statusOptLabel}>{o.label}</Text>
+                  </View>
+                  <Text style={styles.statusOptCount}>{statusCount(o)}</Text>
+                </Pressable>
+              );
+            })}
           </Pressable>
         </Pressable>
       </Modal>
@@ -474,26 +484,37 @@ const styles = StyleSheet.create({
   },
   sortOptionText: { fontSize: font.lg, color: colors.onSurface },
   sortOptionActive: { fontWeight: "700", color: colors.brandPrimary },
-  // --- Filter chips ---
-  chipsRow: { marginBottom: spacing.md, marginHorizontal: -spacing.lg },
-  chipsContent: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-  chip: {
+  // --- Status selector button ---
+  statusBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    height: 34,
+    gap: spacing.sm,
+    height: 40,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    marginBottom: spacing.md,
+    alignSelf: "flex-start",
   },
-  chipActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
-  chipDot: { width: 6, height: 6, borderRadius: 3 },
-  chipText: { fontSize: font.base, fontWeight: "600", color: colors.onSurface },
-  chipTextActive: { color: colors.onBrandPrimary },
-  chipCount: { fontSize: font.sm, fontWeight: "700", color: colors.onSurfaceTertiary, fontVariant: ["tabular-nums"] },
-  chipCountActive: { color: colors.onBrandPrimary },
+  statusBtnDot: { width: 8, height: 8, borderRadius: 4 },
+  statusBtnLabel: { fontSize: font.base, fontWeight: "600", color: colors.onSurface },
+  // --- Status sheet rows ---
+  statusOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+  },
+  statusOptionActive: { backgroundColor: colors.infoBg },
+  statusOptLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusDotSpacer: { width: 8, height: 8 },
+  statusOptLabel: { fontSize: font.lg, color: colors.onSurface },
+  statusOptCount: { fontSize: font.base, fontWeight: "700", color: colors.onSurfaceTertiary, fontVariant: ["tabular-nums"] },
   // --- Summary card (Brevo mint) ---
   summary: {
     backgroundColor: colors.mint,

@@ -5,13 +5,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { GlassHeader } from "@/src/components/Header";
-import { StateView, Loader, StatusBadge, Button } from "@/src/components/common";
+import { StateView, Loader, StatusBadge, Button, statusVisual } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
-import { nf, fmtDateTime, titleCase } from "@/src/lib/format";
+import { nf, fmtDateTime } from "@/src/lib/format";
 
 // Rate 0–100 for a numerator/denominator, never NaN/Infinity.
 const ratePct = (num?: number, den?: number) => {
@@ -204,7 +204,7 @@ export default function CampaignDetail() {
           <View style={styles.metaRow}>
             <Ionicons name="pricetag-outline" size={13} color={colors.onSurfaceTertiary} />
             <Text style={styles.meta}>
-              {`#${campaign.id} · ${titleCase(campaign.status || "")}`}
+              {`#${campaign.id} · ${statusVisual(campaign.status).label}`}
             </Text>
           </View>
           {senderText ? (

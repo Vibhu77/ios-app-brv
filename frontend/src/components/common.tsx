@@ -106,27 +106,33 @@ const normStatus = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g,
 
 export type StatusVisual = { bg: string; fg: string; label: string };
 
-// One mapping used by the card badge, the filter chip dots and the detail.
+// One mapping used by the card badge, the filter selector and the detail.
+// Labels and spelling match Brevo web ("Canceled" with one L).
 export function statusVisual(status?: string): StatusVisual {
   switch (normStatus(status)) {
     case "sent":
       return { bg: colors.successBg, fg: colors.successText, label: "Sent" };
-    case "archive":
-    case "archived":
-      return { bg: colors.successBg, fg: colors.successText, label: "Archived" };
     case "queued":
     case "scheduled":
       return { bg: colors.infoBg, fg: colors.infoText, label: "Scheduled" };
     case "inprocess":
     case "running":
-      return { bg: colors.infoBg, fg: colors.infoText, label: "Running" };
+      return { bg: colors.warningBg, fg: colors.warningText, label: "Running" };
     case "suspended":
-      return { bg: colors.warningBg, fg: colors.warningText, label: "Suspended" };
+      return { bg: colors.errorBg, fg: colors.errorText, label: "Suspended" };
+    case "rejected":
+      return { bg: colors.errorBg, fg: colors.errorText, label: "Rejected" };
     case "cancelled":
+    case "cancelling":
     case "canceled":
-      return { bg: colors.errorBg, fg: colors.errorText, label: "Cancelled" };
+      return { bg: colors.errorBg, fg: colors.errorText, label: "Canceled" };
+    case "archive":
+    case "archived":
+      return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, label: "Archived" };
     case "draft":
       return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, label: "Draft" };
+    case "inreview":
+      return { bg: colors.infoBg, fg: colors.infoText, label: "In review" };
     default:
       return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, label: titleCase(status || "draft") };
   }

@@ -474,11 +474,18 @@ async def auth_logout(authorization: Optional[str] = Header(None)):
 # ---------------- Brevo data endpoints (session-protected) ----------------
 @api_router.get("/brevo/campaigns")
 async def list_campaigns(sess: dict = Depends(get_session), page_size: int = 50):
-    return await brevo_paginated(
+    res = await brevo_paginated(
         "/emailCampaigns", sess, "campaigns",
         page_size=max(1, min(page_size, 50)),
         extra_params={"statistics": "globalStats", "sort": "desc", "excludeHtmlContent": "true"},
     )
+    # Diagnostic: distinct raw status values only (to confirm the status map).
+    try:
+        statuses = sorted({c.get("status") for c in (res.get("campaigns") or []) if c.get("status")})
+        logger.info("campaign statuses: %s", statuses)
+    except Exception:
+        pass
+    return res
 
 
 @api_router.get("/brevo/campaigns/{campaign_id}")
