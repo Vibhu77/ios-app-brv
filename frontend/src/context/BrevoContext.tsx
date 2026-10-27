@@ -37,6 +37,16 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
   // Guards the expired-session redirect so a burst of parallel 401s only
   // clears the session + navigates to /login once (no loop, no thrash).
   const expiredRef = useRef(false);
+  // Mirror of `token` readable synchronously inside async callbacks.
+  const tokenRef = useRef("");
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
+  // Single-flight OAuth code exchange: the deep-link listener and the
+  // oauth-complete screen can both redeem the same one-time code at once.
+  // Keyed by code so a duplicate returns the SAME promise (one network call),
+  // and finished codes stay in the map so a late duplicate gets the first result.
+  const exchangesRef = useRef<Map<string, Promise<boolean>>>(new Map());
 
   const hydrate = useCallback(async (t: string) => {
     if (!t) {
@@ -94,23 +104,33 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Redeem a one-time OAuth code for a session token using the PKCE verifier
-  // we stashed before opening the browser. Single-use: the verifier is removed
-  // on the first successful exchange, so a duplicate callback is a silent no-op.
+  // we stashed before opening the browser. Single-flight per code: concurrent
+  // callers (deep-link listener + oauth-complete) share one request, so the
+  // "loser" never hits the backend with an already-consumed code.
   const exchangeCode = useCallback(
-    async (code: string): Promise<boolean> => {
-      const verifier = (await storage.secureGet<string>(PKCE_KEY, "")) || "";
-      if (!verifier) return false;
-      try {
-        const t = await exchangeOAuthCode(code, verifier);
-        await storage.secureRemove(PKCE_KEY);
-        if (t) {
-          await setSession(t);
-          return true;
+    (code: string): Promise<boolean> => {
+      const existing = exchangesRef.current.get(code);
+      if (existing) return existing;
+      const p = (async (): Promise<boolean> => {
+        try {
+          const verifier = (await storage.secureGet<string>(PKCE_KEY, "")) || "";
+          // No verifier usually means a concurrent call already redeemed the
+          // code and established the session — treat a live session as success.
+          if (!verifier) return !!tokenRef.current;
+          const t = await exchangeOAuthCode(code, verifier);
+          await storage.secureRemove(PKCE_KEY);
+          if (t) {
+            await setSession(t);
+            return true;
+          }
+          return !!tokenRef.current;
+        } catch {
+          // Exchange failed, but another path may have set the session already.
+          return !!tokenRef.current;
         }
-        return false;
-      } catch {
-        return false;
-      }
+      })();
+      exchangesRef.current.set(code, p);
+      return p;
     },
     [setSession]
   );
@@ -160,21 +180,25 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
         const parsed = Linking.parse(result.url);
         const err = parsed.queryParams?.error as string | undefined;
         const code = parsed.queryParams?.code as string | undefined;
-        if (err) return { ok: false, error: decodeURIComponent(err) };
+        if (err && !tokenRef.current) return { ok: false, error: decodeURIComponent(err) };
         if (code) {
           const ok = await exchangeCode(String(code));
-          return ok ? { ok: true } : { ok: false, error: "Sign in failed" };
+          if (ok || tokenRef.current) return { ok: true };
+          return { ok: false, error: "Sign in failed" };
         }
+        if (tokenRef.current) return { ok: true };
         return { ok: false, error: "No authorization code returned" };
       }
       // On some platforms (notably Expo Go) the session completes via the
       // deep-link listener above rather than the returned result — treat
       // dismiss/cancel as a silent no-op so we don't flash an error.
+      if (tokenRef.current) return { ok: true };
       if (result.type === "cancel" || result.type === "dismiss") {
         return { ok: false, error: "Sign in cancelled" };
       }
       return { ok: false, error: "Sign in failed" };
     } catch (e: any) {
+      if (tokenRef.current) return { ok: true };
       return { ok: false, error: e?.message || "Sign in failed" };
     }
   }, [exchangeCode]);

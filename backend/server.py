@@ -605,6 +605,25 @@ async def get_brevo_account(sess: dict = Depends(get_session)):
 
     # planVerticals: only include when present, and only the credits the app reads.
     raw_verticals = raw.get("planVerticals")
+
+    # Diagnostic (keys + planCategory/name only — no values/PII) to confirm the
+    # real planVerticals shape for the signed-in account.
+    try:
+        logger.info("account keys: %s", sorted(raw.keys()))
+        if isinstance(raw_verticals, list):
+            logger.info(
+                "planVerticals(list): %s",
+                [
+                    {"planCategory": v.get("planCategory"), "name": v.get("name")}
+                    for v in raw_verticals
+                    if isinstance(v, dict)
+                ],
+            )
+        elif isinstance(raw_verticals, dict):
+            logger.info("planVerticals(dict) keys: %s", sorted(raw_verticals.keys()))
+    except Exception:
+        pass
+
     if isinstance(raw_verticals, dict):
         pv = {}
         if isinstance(raw_verticals.get("email"), dict):
@@ -613,6 +632,19 @@ async def get_brevo_account(sess: dict = Depends(get_session)):
             pv["sms"] = {"credits": raw_verticals["sms"].get("credits")}
         if pv:
             out["planVerticals"] = pv
+
+    # Real plan name lives in the Marketing vertical (plan[].type is only a
+    # billing category). e.g. "Business".
+    def _marketing_name(verticals):
+        if isinstance(verticals, list):
+            for v in verticals:
+                if isinstance(v, dict) and str(v.get("planCategory", "")).lower() == "marketing":
+                    return v.get("name")
+        return None
+
+    plan_name = _marketing_name(raw_verticals)
+    if plan_name:
+        out["planName"] = plan_name
 
     return out
 

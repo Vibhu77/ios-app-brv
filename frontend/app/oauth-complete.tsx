@@ -9,16 +9,23 @@ import { useToast } from "@/src/context/ToastContext";
 export default function OAuthComplete() {
   const router = useRouter();
   const toast = useToast();
-  const { exchangeCode } = useBrevo();
+  const { exchangeCode, isConnected } = useBrevo();
   const params = useLocalSearchParams<{ code?: string; error?: string }>();
 
   useEffect(() => {
     (async () => {
+      // Already signed in (e.g. the deep-link listener redeemed the code
+      // first) — leave quietly, no toast.
+      if (isConnected) {
+        router.replace("/campaigns");
+        return;
+      }
       if (params.code) {
         const ok = await exchangeCode(String(params.code));
         if (ok) {
           router.replace("/campaigns");
         } else {
+          // Only an error when the exchange failed AND no session exists.
           toast.show("Sign in failed. Please try again.", "error");
           router.replace("/login");
         }
@@ -29,6 +36,7 @@ export default function OAuthComplete() {
         router.replace("/login");
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.code, params.error]);
 
   return (

@@ -110,10 +110,14 @@ export default function SettingsScreen() {
     account?.email ||
     "Brevo account";
 
-  // Plan row: type + renewal date (plan is an object in /v3/account).
+  // Plan row. Prefer the real plan name from the Marketing vertical
+  // ("Business plan · renews <date>"); fall back to plan.type otherwise.
   const plan = account?.plan;
-  const planLabel = plan?.type
-    ? plan.type.charAt(0).toUpperCase() + plan.type.slice(1) + (plan.endDate ? ` · renews ${fmtDate(plan.endDate)}` : "")
+  const renews = plan?.endDate ? ` · renews ${fmtDate(plan.endDate)}` : "";
+  const planLabel = account?.planName
+    ? `${account.planName} plan${renews}`
+    : plan?.type
+    ? plan.type.charAt(0).toUpperCase() + plan.type.slice(1) + renews
     : undefined;
 
   // Credits tile (only rendered when planVerticals is present).
