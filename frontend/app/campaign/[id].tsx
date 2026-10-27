@@ -132,6 +132,7 @@ export default function CampaignDetail() {
   const [openPicker, setOpenPicker] = useState<"date" | "hour" | "minute" | null>(null);
   const [confirmMode, setConfirmMode] = useState<null | "now" | "later">(null);
   const [sending, setSending] = useState(false);
+  const sendingRef = React.useRef(false);
   const [sheetError, setSheetError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -233,7 +234,8 @@ export default function CampaignDetail() {
   };
 
   const runSend = async () => {
-    if (sending) return; // ignore repeat taps
+    if (sendingRef.current) return; // synchronous guard: one request per tap burst
+    sendingRef.current = true;
     setSending(true);
     setSheetError(null);
     try {
@@ -250,6 +252,7 @@ export default function CampaignDetail() {
     } catch (e: any) {
       setSheetError(errText(e));
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -574,6 +577,10 @@ export default function CampaignDetail() {
                 title={sendMode === "now" ? "Send now" : "Schedule"}
                 onPress={() => {
                   setSheetError(null);
+                  setOpenPicker(null);
+                  // iOS can't show two sibling Modals at once — close the sheet
+                  // first, keeping the chosen date/time, then open the confirm.
+                  setScheduleOpen(false);
                   setConfirmMode(sendMode === "now" ? "now" : "later");
                 }}
               />

@@ -475,18 +475,11 @@ async def auth_logout(authorization: Optional[str] = Header(None)):
 # ---------------- Brevo data endpoints (session-protected) ----------------
 @api_router.get("/brevo/campaigns")
 async def list_campaigns(sess: dict = Depends(get_session), page_size: int = 50):
-    res = await brevo_paginated(
+    return await brevo_paginated(
         "/emailCampaigns", sess, "campaigns",
         page_size=max(1, min(page_size, 50)),
         extra_params={"statistics": "globalStats", "sort": "desc", "excludeHtmlContent": "true"},
     )
-    # Diagnostic: distinct raw status values only (to confirm the status map).
-    try:
-        statuses = sorted({c.get("status") for c in (res.get("campaigns") or []) if c.get("status")})
-        logger.info("campaign statuses: %s", statuses)
-    except Exception:
-        pass
-    return res
 
 
 @api_router.get("/brevo/campaigns/{campaign_id}")
@@ -538,6 +531,8 @@ async def _build_readiness(campaign_id: int, sess: dict) -> dict:
     recips = camp.get("recipients") or {}
     list_ids = _recipient_ids(recips.get("listIds") or recips.get("lists"))
     seg_ids = _recipient_ids(recips.get("segmentIds") or recips.get("segments"))
+    excl_list_ids = _recipient_ids(recips.get("exclusionListIds") or recips.get("exclusionLists"))
+    excl_seg_ids = _recipient_ids(recips.get("exclusionSegmentIds") or recips.get("exclusionSegments"))
 
     lists = []
     for lid in list_ids:
@@ -584,6 +579,8 @@ async def _build_readiness(campaign_id: int, sess: dict) -> dict:
         "missing": missing,
         "_listIds": list_ids,
         "_segmentIds": seg_ids,
+        "_exclusionListIds": excl_list_ids,
+        "_exclusionSegmentIds": excl_seg_ids,
     }
 
 
@@ -623,11 +620,19 @@ async def campaign_schedule(campaign_id: int, request: Request, sess: dict = Dep
         raise HTTPException(status_code=400, detail={"message": "Campaign is not ready to send", "missing": r["missing"]})
 
     # Brevo requires re-sending the SAME recipient type used at creation.
+    # Also re-send any existing exclusions so scheduling never changes them.
     put_body: dict = {"scheduledAt": scheduled_at}
+    recipients: dict = {}
     if r["_listIds"]:
-        put_body["recipients"] = {"listIds": r["_listIds"]}
+        recipients["listIds"] = r["_listIds"]
     elif r["_segmentIds"]:
-        put_body["recipients"] = {"segmentIds": r["_segmentIds"]}
+        recipients["segmentIds"] = r["_segmentIds"]
+    if r["_exclusionListIds"]:
+        recipients["exclusionListIds"] = r["_exclusionListIds"]
+    if r["_exclusionSegmentIds"]:
+        recipients["exclusionSegmentIds"] = r["_exclusionSegmentIds"]
+    if recipients:
+        put_body["recipients"] = recipients
     await brevo_authed("PUT", f"/emailCampaigns/{campaign_id}", sess, json_body=put_body)
     return {"ok": True, "scheduledAt": scheduled_at}
 
@@ -740,24 +745,6 @@ async def get_brevo_account(sess: dict = Depends(get_session)):
 
     # planVerticals: only include when present, and only the credits the app reads.
     raw_verticals = raw.get("planVerticals")
-
-    # Diagnostic (keys + planCategory/name only — no values/PII) to confirm the
-    # real planVerticals shape for the signed-in account.
-    try:
-        logger.info("account keys: %s", sorted(raw.keys()))
-        if isinstance(raw_verticals, list):
-            logger.info(
-                "planVerticals(list): %s",
-                [
-                    {"planCategory": v.get("planCategory"), "name": v.get("name")}
-                    for v in raw_verticals
-                    if isinstance(v, dict)
-                ],
-            )
-        elif isinstance(raw_verticals, dict):
-            logger.info("planVerticals(dict) keys: %s", sorted(raw_verticals.keys()))
-    except Exception:
-        pass
 
     if isinstance(raw_verticals, dict):
         pv = {}
