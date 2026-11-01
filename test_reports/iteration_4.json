@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend re-test of the reload regression fix (Expo web, 375x667, demo mode). All 5 requested items PASS. Reload on /campaigns keeps the list: 40 campaign cards and a total of 59,528, with no empty state. Reload on /settings fills the Account card (Avery Nguyen, Acme Demo Co., plan) and shows no spinner. Reload on /contacts loads the list: '60 contacts' header and 25 rows. /oauth-complete when logged out goes to /login. When logged in it goes to /campaigns with no 'Sign in failed' toast, and the user is still on /campaigns after waiting past the 8s safety-net timer. Switching between Campaigns, Contacts and Settings 5 times caused no regression. The tab bar is opaque white on web. No page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Tabs (all)", "issues": ["The 'Demo data' pill floats over list content above the tab bar and partly covers rows and cards. It has pointerEvents=none, so this is cosmetic only."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [".screenshots/reload_campaigns.png", ".screenshots/reload_settings.png", ".screenshots/reload_contacts.png"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "(tabs)/_layout.tsx: gating on BrevoContext.loading before mounting Tabs fixes the iteration_3 race. Screens now mount with the token already set.",
+    "oauth-complete.tsx: connectedRef removes the stale closure in the 8s timer. The logic is correct."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not requested)", "frontend": "100% (5/5 requested scenarios)"},
+  "seed_data_creation": "None. Used the 'Use sample data' demo session.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Demo login: [data-testid=login-demo-button] on /login. Tabs: a[href='/campaigns'|'/contacts'|'/settings']. Cards: [data-testid^=campaign-card-], rows: [data-testid^=contact-row-], account: [data-testid=settings-account]. The session persists in localStorage, so page.reload() keeps it. Real Brevo OAuth is out of scope.",
+  "rca_of_issue": "The iteration_3 reload bug is resolved. The tabs layout now shows a spinner until the persisted session has loaded."
+}

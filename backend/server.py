@@ -511,6 +511,13 @@ def _recipient_ids(arr):
     return out
 
 
+KNOWN_RECIPIENT_KEYS = {
+    "lists", "listIds", "segments", "segmentIds",
+    "exclusionLists", "exclusionListIds", "exclusionSegments", "exclusionSegmentIds",
+}
+_RECIPIENTS_LOGGED = False
+
+
 async def _build_readiness(campaign_id: int, sess: dict) -> dict:
     """Server-side readiness for a draft. Mirrors Brevo web's Schedule gating.
     Returns a dict with private _listIds/_segmentIds for the send/schedule
@@ -533,6 +540,24 @@ async def _build_readiness(campaign_id: int, sess: dict) -> dict:
     seg_ids = _recipient_ids(recips.get("segmentIds") or recips.get("segments"))
     excl_list_ids = _recipient_ids(recips.get("exclusionListIds") or recips.get("exclusionLists"))
     excl_seg_ids = _recipient_ids(recips.get("exclusionSegmentIds") or recips.get("exclusionSegments"))
+
+    # Log the recipients shape once (keys only + which are non-empty). No ids/emails.
+    global _RECIPIENTS_LOGGED
+    if not _RECIPIENTS_LOGGED:
+        try:
+            nonempty = sorted(k for k, v in recips.items() if v not in (None, [], {}, "", 0))
+            logger.info("campaign recipients keys: %s | non-empty: %s", sorted(recips.keys()), nonempty)
+        except Exception:
+            pass
+        _RECIPIENTS_LOGGED = True
+
+    # Any non-empty recipients key outside the known set means the campaign
+    # targets individually-added contacts (or another unsupported mode) that we
+    # can't safely re-send on schedule.
+    unsupported = [
+        k for k, v in recips.items()
+        if k not in KNOWN_RECIPIENT_KEYS and v not in (None, [], {}, "", 0)
+    ]
 
     lists = []
     for lid in list_ids:
@@ -558,16 +583,19 @@ async def _build_readiness(campaign_id: int, sess: dict) -> dict:
             segments.append({"id": sid, "name": names.get(sid) or f"Segment {sid}"})
 
     missing = []
-    if not (sender and sender.get("email")):
-        missing.append("sender")
-    if not (lists or segments):
-        missing.append("recipients")
-    if not subject:
-        missing.append("subject")
-    if not has_design:
-        missing.append("design")
-
-    ready = str(status or "").lower() == "draft" and not missing
+    if unsupported:
+        missing = ["unsupported_recipients"]
+        ready = False
+    else:
+        if not (sender and sender.get("email")):
+            missing.append("sender")
+        if not (lists or segments):
+            missing.append("recipients")
+        if not subject:
+            missing.append("subject")
+        if not has_design:
+            missing.append("design")
+        ready = str(status or "").lower() == "draft" and not missing
 
     return {
         "status": status,

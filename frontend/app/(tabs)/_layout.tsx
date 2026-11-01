@@ -1,5 +1,5 @@
 import React from "react";
-import { Platform, StyleSheet, View, Text } from "react-native";
+import { Platform, StyleSheet, View, Text, ActivityIndicator } from "react-native";
 import { Tabs, Redirect } from "expo-router";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,7 +10,17 @@ import { useBrevo } from "@/src/context/BrevoContext";
 export default function TabsLayout() {
   const { token, loading, isDemo } = useBrevo();
   const insets = useSafeAreaInsets();
-  if (!loading && !token) return <Redirect href="/login" />;
+  // Wait for the persisted session to load before mounting the tab screens.
+  // Otherwise each screen's first focus-load runs with an empty token, exits
+  // early, and never refetches when the token arrives (blank list on reload).
+  if (loading) {
+    return (
+      <View style={[styles.root, styles.center]}>
+        <ActivityIndicator size="large" color={colors.brandPrimary} />
+      </View>
+    );
+  }
+  if (!token) return <Redirect href="/login" />;
 
   return (
     <View style={styles.root}>
@@ -27,7 +37,7 @@ export default function TabsLayout() {
           paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
-          backgroundColor: Platform.OS === "android" ? colors.surface : "transparent",
+          backgroundColor: Platform.OS === "ios" ? "transparent" : colors.surface,
           elevation: 0,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
@@ -75,6 +85,7 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  center: { alignItems: "center", justifyContent: "center", backgroundColor: colors.surface },
   demoPill: {
     position: "absolute",
     alignSelf: "center",

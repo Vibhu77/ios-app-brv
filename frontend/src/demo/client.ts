@@ -192,11 +192,24 @@ export const demoBrevo = {
 };
 
 // Demo readiness: sender present for all fixtures; design assumed; one demo
-// list; only the subject can be missing (fixture draft #7).
+// list; only the subject can be missing (fixture draft #7). Draft #16 is a
+// demo case for a campaign targeting individually-added contacts.
 function demoReadiness(c: Campaign) {
   const sender = c.sender?.email ? { name: c.sender.name, email: c.sender.email } : null;
   const subject = c.subject || null;
   const hasDesign = true;
+  // Draft #16 simulates individually-added contacts (unsupported to schedule).
+  if (String(c.id) === "16") {
+    return {
+      status: c.status,
+      sender,
+      subject,
+      recipients: { lists: [], segments: [] },
+      hasDesign,
+      ready: false,
+      missing: ["unsupported_recipients"],
+    };
+  }
   const lists = [{ id: 1, name: "Demo list (just me)", count: 1 }];
   const missing: string[] = [];
   if (!sender?.email) missing.push("sender");

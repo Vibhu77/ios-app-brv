@@ -1,0 +1,34 @@
+{
+  "summary": "Tested the /oauth-complete stuck-spinner fix on the web preview only (390x844 viewport, no backend tests). FIX VERIFIED. Case A (logged out, no params): goes to /login in about 0.3s, cold and warm, and both 'Sign in with Brevo' and 'Use sample data' show. Case B (demo session, then a full-page load of /oauth-complete): goes to /campaigns in about 0.3s with no 'Sign in failed' toast, and the 8s safety net does not send the user back to /login (still on /campaigns 9s later). Extra cases: logged in with ?code=bogus goes to /campaigns with no toast. Logged out with ?code=bogus goes to /login with the 'Sign in failed. Please try again.' toast. ?error=access_denied goes to /login with the error toast. No page errors. Regression: tapping the Campaigns, Contacts and Settings tabs works and each tab renders without the error boundary. One separate bug found (the session loading race again, this time in the tabs, not oauth-complete): after a FULL PAGE RELOAD on a tab route, Campaigns shows 0 campaigns / empty state and the Settings Account card spins forever, until the user switches tabs and comes back. The tab bar is also see-through on web. Real Brevo OAuth was not tested: it needs the user's own account.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "(tabs) screens after full page reload", "issue": "With a stored session, reloading /campaigns gives TOTAL SENT 0 and 'No campaigns yet', and no data request is made. Reloading /settings leaves the Account card spinner running forever. Data appears only after switching tabs and coming back. RCA: app/(tabs)/_layout.tsx renders the Tabs while BrevoContext loading=true (token=''). useFocusRefetch (src/hooks/use-focus-refetch.ts) runs fn once on first focus, while token is still ''. load/loadAccount return early (campaigns.tsx:75, settings.tsx:54). The hook does not run again when the token arrives, because the focus callback has [] deps and only the ref is updated.", "testID": "settings-account", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Tabs (web)", "issues": ["The tab bar is see-through on web: backgroundColor is 'transparent' for non-Android and BlurView is iOS-only (app/(tabs)/_layout.tsx:30-35), so list content shows behind the tab icons. Use colors.surface on web."]}
+    ],
+    "react_native_issues": [
+      {"component": "expo-router unstable_settings", "issue": "Console warning: `unstable_settings.initialRouteName` is deprecated. Use `unstable_settings.anchor` instead. Reference: app/_layout.tsx (unstable_settings export)"}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_3.json"],
+  "action_items": [
+    "HIGH: Fix the reload race in the tabs. Either render a loading spinner (not <Tabs>) in app/(tabs)/_layout.tsx while BrevoContext `loading` is true, or make useFocusRefetch/screens run again when `token` changes from '' to a value.",
+    "MEDIUM: oauth-complete.tsx safety-net timer (lines 80-87) reads a stale `isConnected` (captured at mount, when it is always false). If a code exchange is still running after 8s, the timer sends the user to /login even if the session arrives. Read isConnected from a ref (or the latest token) instead.",
+    "LOW: Make the tab bar background solid on web (colors.surface).",
+    "LOW: Replace unstable_settings.initialRouteName with unstable_settings.anchor."
+  ],
+  "critical_code_review_comments": [
+    "oauth-complete.tsx: the logic is correct. It waits for loading=false and isConnected is in the effect deps. exchangedRef keeps the exchange single-flight, navigatedRef makes it navigate once, and the popup detection bows out. The only weak spot is the stale isConnected in the 8s timer closure.",
+    "The same 'session loads asynchronously' root cause also affects the tab screens on cold load (see ui_bugs)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not requested)", "frontend": "100% for requested oauth-complete cases and tab regression; 1 separate HIGH bug found on full-page reload of tab routes"},
+  "seed_data_creation": "None. Used the 'Use sample data' demo session.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Demo login: tap [data-testid=login-demo-button] on /login (lands on /campaigns). Tabs are a[href='/campaigns'|'/contacts'|'/settings']. To reproduce the reload bug: log in with the demo, then page.reload() on /campaigns and the total shows 0. Tab taps (no reload) show 59,528 / 40 campaigns. Real Brevo OAuth cannot be tested.",
+  "rca_of_issue": "Tabs reload race: TabsLayout only redirects when !loading && !token, so while loading it still mounts the screens with token=''. useFocusRefetch runs once on focus and is not re-triggered when the token resolves. Mitigation: gate rendering on loading in the tabs layout, or include token in the refetch trigger."
+}

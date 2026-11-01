@@ -361,6 +361,15 @@ export default function CampaignDetail() {
                   }}
                 />
               </View>
+            ) : readiness.missing.includes("unsupported_recipients") ? (
+              <View style={styles.infoBox} testID="campaign-not-ready">
+                <View style={styles.infoHead}>
+                  <Ionicons name="information-circle" size={18} color={colors.infoText} />
+                  <Text style={styles.infoText}>
+                    This campaign includes individually added contacts. Schedule it on Brevo web.
+                  </Text>
+                </View>
+              </View>
             ) : (
               <View style={styles.infoBox} testID="campaign-not-ready">
                 <View style={styles.infoHead}>

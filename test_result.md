@@ -101,3 +101,49 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+## Test run: web sign-in popup guard + unsupported recipients (draft send/schedule)
+Context: Brevo uses the user's own OAuth (no test credentials; real sign-in NOT testable here).
+Demo mode is ENABLED for this run (EXPO_PUBLIC_DEMO_MODE=1) so draft send/schedule UI is reachable via "Use sample data".
+
+Frontend (demo) to verify:
+- Campaign detail for a draft targeting individually-added contacts (DEMO draft id 16):
+  shows info box text EXACTLY "This campaign includes individually added contacts. Schedule it on Brevo web."
+  and NO "Schedule" button, NO bullet list.
+- Ready draft (DEMO id 2): shows primary "Schedule" button; tapping opens the Schedule sheet
+  ("When would you like to send the campaign?", Send now / Schedule for later).
+- Draft missing subject (DEMO id 7): shows "Complete all required steps on Brevo web to send this campaign."
+  with a bullet "Subject".
+- No regressions on Campaigns list, Contacts list, Settings.
+
+Backend (session-protected) sanity:
+- GET /api/brevo/campaigns/{id}/readiness, POST .../send-now, POST .../schedule must reject
+  unauthenticated requests (401/403). Real-Brevo readiness logic not testable without a live session.
+
+NOT testable here (needs the user's real Brevo account on desktop web / Expo Go):
+- Web popup sign-in no-false-error fix (oauth-complete popup guard).
+- Real unsupported-recipients detection from a real campaign's recipients keys.
+
+## Test run: /oauth-complete never stuck on spinner (web)
+Demo mode ENABLED (EXPO_PUBLIC_DEMO_MODE=1). Real Brevo OAuth is NOT testable (user's own account).
+Frontend web routing to verify at path /oauth-complete:
+- Logged OUT, open /oauth-complete (no query params): must redirect to /login within a few seconds
+  (NOT stay on the spinner).
+- Logged IN via "Use sample data" first, then open /oauth-complete: must redirect to /campaigns.
+- No regressions: login screen renders; Campaigns/Contacts/Settings load after sample login.
+NOT testable here: real sign-in success/false-error, popup-opener path (needs real OAuth on desktop web/Expo Go).
+
+## Re-test after fixes (iteration 3 follow-up)
+Fixed:
+- HIGH: tabs showed blank data / infinite Settings spinner on browser RELOAD while a session is stored.
+  Fix: app/(tabs)/_layout.tsx now shows a spinner while BrevoContext.loading is true and mounts the tab
+  screens only AFTER the session resolves, so each screen's first focus-load runs with a token.
+- MEDIUM: oauth-complete 8s safety-net timer now reads isConnected via a ref (connectedRef) instead of
+  the stale first-render value.
+- LOW: tab bar background is now opaque (colors.surface) on web + android (transparent only on iOS).
+
+Please verify (frontend web, demo mode ON, use "Use sample data"):
+1. Reload regression: sign in via sample data -> open Campaigns (40 campaigns) -> RELOAD the browser:
+   Campaigns must still show its campaigns (NOT the empty state). RELOAD on Settings: the Account card
+   must populate (NOT spin forever). RELOAD on Contacts: contacts list still loads.
+2. /oauth-complete still routes correctly: logged out -> /login; logged in -> /campaigns; never stuck on spinner.
+3. No regressions switching between Campaigns/Contacts/Settings tabs.
