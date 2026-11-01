@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import { Platform } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import { router } from "expo-router";
@@ -8,7 +9,11 @@ import { DEMO_MODE, DEMO_TOKEN } from "@/src/lib/demo-mode";
 import { createPkce } from "@/src/lib/pkce";
 import { cache } from "@/src/lib/cache";
 
-WebBrowser.maybeCompleteAuthSession();
+// maybeCompleteAuthSession signals the popup opener that auth is done.
+// On web we now use a full-page redirect (no popup), so this is native-only.
+if (Platform.OS !== "web") {
+  WebBrowser.maybeCompleteAuthSession();
+}
 
 const KEY = "brevo_session_token";
 // PKCE verifier persisted across the browser round-trip (survives a full-page
@@ -170,9 +175,31 @@ export function BrevoProvider({ children }: { children: React.ReactNode }) {
     // Diagnostic (dev only): the exact deep-link the backend must allow-list.
     // In Expo Go this streams to the Metro dev-server logs.
     if (__DEV__) console.log("[oauth] Linking.createURL('oauth-complete') =", redirect);
+
+    if (Platform.OS === "web") {
+      // In a storage-partitioned iframe (e.g. Emergent preview), Chrome blocks
+      // cross-context localStorage reads, so expo-web-browser's popup handshake
+      // silently fails and openAuthSessionAsync never resolves.
+      // Signal the UI to ask the user to open the app in its own tab instead.
+      const w = typeof window !== "undefined" ? window : null;
+      const inIframe = (() => {
+        try { return w != null && w.top !== w.self; } catch { return true; }
+      })();
+      if (inIframe) return { ok: false, error: "OPEN_IN_TAB" };
+
+      // Full-page redirect in the same tab — no popup, no openAuthSessionAsync.
+      // IndexedDB (AsyncStorage web shim) persists across full-page navigations,
+      // so the PKCE verifier will be readable when oauth-complete mounts.
+      const { verifier, challenge } = await createPkce();
+      await storage.secureSet(PKCE_KEY, verifier);
+      if (w) w.location.assign(LOGIN_URL(redirect, challenge));
+      return { ok: true }; // page is navigating away; this line is never reached
+    }
+
+    // ── Native path (Expo Go deep-link / device browser sheet) ──────────────
     const { verifier, challenge } = await createPkce();
     // Persist the verifier BEFORE opening the browser so it survives the
-    // round-trip (web full-page redirect / Expo Go deep-link bounce).
+    // deep-link bounce in Expo Go.
     await storage.secureSet(PKCE_KEY, verifier);
     try {
       const result = await WebBrowser.openAuthSessionAsync(LOGIN_URL(redirect, challenge), redirect);

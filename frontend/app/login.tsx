@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import React, { useState, useEffect } from "react";
+import { StyleSheet, Text, View, useWindowDimensions, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Redirect } from "expo-router";
 import { Image } from "expo-image";
@@ -64,15 +64,36 @@ export default function LoginScreen() {
   const { login, loginDemo, isConnected } = useBrevo();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  // Detect if we're running inside an iframe (e.g. the Emergent preview panel).
+  // In that context Chrome partitions storage, breaking the popup OAuth flow.
+  const [isIframe, setIsIframe] = useState(false);
+  useEffect(() => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      try {
+        setIsIframe(window.top !== window.self);
+      } catch {
+        setIsIframe(true); // cross-origin iframe: window.top access throws SecurityError
+      }
+    }
+  }, []);
 
   // Once a session exists (inline success OR captured via the deep-link
   // listener after openAuthSessionAsync dismisses in Expo Go), leave login.
   if (isConnected) return <Redirect href="/campaigns" />;
 
+  // Opens the app in a fresh full browser tab so the OAuth redirect flow
+  // works without iframe storage partitioning.
+  const openInNewTab = () => {
+    if (typeof window !== "undefined") {
+      window.open(window.location.origin, "_blank");
+    }
+  };
+
   const onLogin = async () => {
     setBusy(true);
     const res = await login();
     setBusy(false);
+    if (!res.ok && res.error === "OPEN_IN_TAB") return; // handled by the iframe UI
     if (!res.ok && res.error && res.error !== "Sign in cancelled") {
       toast.show(res.error, "error");
     }
@@ -118,13 +139,27 @@ export default function LoginScreen() {
           ))}
         </View>
 
-        <PrimaryButton
-          title="Sign in with Brevo"
-          icon="log-in-outline"
-          onPress={onLogin}
-          loading={busy}
-          testID="login-brevo-button"
-        />
+        {isIframe ? (
+          <View style={styles.iframeNotice}>
+            <Text style={styles.iframeText}>
+              To sign in, open the app in its own tab.
+            </Text>
+            <PrimaryButton
+              title="Open in new tab"
+              icon="open-outline"
+              onPress={openInNewTab}
+              testID="login-open-tab-button"
+            />
+          </View>
+        ) : (
+          <PrimaryButton
+            title="Sign in with Brevo"
+            icon="log-in-outline"
+            onPress={onLogin}
+            loading={busy}
+            testID="login-brevo-button"
+          />
+        )}
         {DEMO_MODE ? (
           <Button
             variant="secondary"
@@ -233,5 +268,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
     fontFamily: fonts.regular,
+  },
+  iframeNotice: { gap: spacing.md },
+  iframeText: {
+    fontSize: font.base,
+    color: colors.onSurfaceSecondary,
+    fontFamily: fonts.semibold,
+    textAlign: "center",
+    lineHeight: 22,
   },
 });

@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from "react";
-import { View, ActivityIndicator, StyleSheet, Platform } from "react-native";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import { colors } from "@/src/theme";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
@@ -24,19 +23,9 @@ export default function OAuthComplete() {
     router.replace(path);
   };
 
-  // On web, this screen can load inside the popup opened by openAuthSessionAsync.
-  // The popup shares the code with its OPENER, which redeems it in login(). If we
-  // also redeem here (a separate JS context, so the single-flight Map can't
-  // dedupe), the loser shows a false error. Detect the popup and bow out.
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      const w = typeof window !== "undefined" ? (window as any) : undefined;
-      if (w && w.opener && !w.opener.closed) {
-        WebBrowser.maybeCompleteAuthSession();
-        navigatedRef.current = true; // popup: let the opener finish; never navigate here
-      }
-    }
-  }, []);
+  // On web the auth flow is a full-page redirect (not a popup), so there is
+  // no opener to signal and no popup branch to handle here.
+  // Always do the exchange + navigate; the 8-second safety net stays active.
 
   // Decide once the stored session has finished loading. Re-runs when the
   // session appears (isConnected) or loading flips, so a session that restores

@@ -132,18 +132,22 @@ Frontend web routing to verify at path /oauth-complete:
 - No regressions: login screen renders; Campaigns/Contacts/Settings load after sample login.
 NOT testable here: real sign-in success/false-error, popup-opener path (needs real OAuth on desktop web/Expo Go).
 
-## Re-test after fixes (iteration 3 follow-up)
-Fixed:
-- HIGH: tabs showed blank data / infinite Settings spinner on browser RELOAD while a session is stored.
-  Fix: app/(tabs)/_layout.tsx now shows a spinner while BrevoContext.loading is true and mounts the tab
-  screens only AFTER the session resolves, so each screen's first focus-load runs with a token.
-- MEDIUM: oauth-complete 8s safety-net timer now reads isConnected via a ref (connectedRef) instead of
-  the stale first-render value.
-- LOW: tab bar background is now opaque (colors.surface) on web + android (transparent only on iOS).
+## Test run: web OAuth full-page redirect fix (June 2026)
+Root cause fixed: expo-web-browser popup flow was unreliable inside iframe (Emergent preview)
+because Chrome partitions storage across contexts. Fix:
+1. BrevoContext.login() – web path now:
+   - If in an iframe (window.top !== window.self or SecurityError): returns {ok:false, error:"OPEN_IN_TAB"}
+   - Otherwise: full-page redirect via window.location.assign() instead of popup
+   - maybeCompleteAuthSession() is now native-only
+2. oauth-complete.tsx – popup/opener branch removed entirely; 8s safety net always active.
+3. login.tsx – detects iframe on mount; when iframe shows "To sign in, open the app in its own tab."
+   + "Open in new tab" button (window.open(origin, _blank)); "OPEN_IN_TAB" error suppressed silently.
 
-Please verify (frontend web, demo mode ON, use "Use sample data"):
-1. Reload regression: sign in via sample data -> open Campaigns (40 campaigns) -> RELOAD the browser:
-   Campaigns must still show its campaigns (NOT the empty state). RELOAD on Settings: the Account card
-   must populate (NOT spin forever). RELOAD on Contacts: contacts list still loads.
-2. /oauth-complete still routes correctly: logged out -> /login; logged in -> /campaigns; never stuck on spinner.
-3. No regressions switching between Campaigns/Contacts/Settings tabs.
+DEMO_MODE=0 (production mode). Real Brevo OAuth NOT testable (needs user's real account).
+Testing focus (frontend web – browser NOT in iframe):
+1. Login screen renders with gradient hero + "Sign in with Brevo" button (iframe=false in test browser).
+2. /oauth-complete with no params → redirects to /login (no spinner stuck).
+3. Enable DEMO_MODE=1 temporarily to test: sample login → /campaigns loads → reload keeps data.
+4. No regressions on Campaigns/Contacts/Settings.
+NOT testable by agent: real Brevo OAuth (user must test in own tab), iframe=true path (needs Emergent preview),
+Expo Go native flow.
