@@ -288,6 +288,7 @@ export function Button({
   testID,
   variant = "primary",
   fullWidth,
+  iconRight,
 }: {
   title: string;
   onPress: () => void;
@@ -297,6 +298,7 @@ export function Button({
   testID?: string;
   variant?: ButtonVariant;
   fullWidth?: boolean;
+  iconRight?: boolean;
 }) {
   const isDisabled = disabled || loading;
   const v = BUTTON_VARIANTS[variant];
@@ -316,8 +318,9 @@ export function Button({
         <ActivityIndicator color={v.fg} />
       ) : (
         <>
-          {icon ? <Ionicons name={icon} size={18} color={v.fg} /> : null}
+          {icon && !iconRight ? <Ionicons name={icon} size={18} color={v.fg} /> : null}
           <Text style={[btnStyles.label, { color: v.fg }]}>{title}</Text>
+          {icon && iconRight ? <Ionicons name={icon} size={18} color={v.fg} /> : null}
         </>
       )}
     </Pressable>

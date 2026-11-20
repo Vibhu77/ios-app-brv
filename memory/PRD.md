@@ -69,3 +69,11 @@ Follow-up: replace API-key auth with **Brevo OAuth 2.0** login (mandatory login 
   - "In loaded contacts": instant contains-match (from 1 char) over loaded list — first/last/full name, email, phone digits.
   - "All contacts in Brevo": debounced 400ms (from 2 chars) — full email -> GET /contacts/{email}; 7+ digits -> phone_id lookup; else name -> NEW backend GET /api/brevo/contacts-search?name= (equals on FIRSTNAME & LASTNAME, raw + capitalised for case-sensitivity, merged/deduped). Deduped vs loaded section; deleted-cache filtered; stale responses ignored via request-id ref.
 - Removed diagnostic console.logs ([startup] getInitialURL, [contact-detail] back pressed).
+
+## UI Refresh Batch 2/4 — Campaign detail (DONE)
+- New header (back link, wrapping title, sender · #id, status pill + date), sticky bottom action bar per status
+- Sent: deliverability warning (<80% delivered, sent>=10), 4 rate tiles, Bounces card with Soft/Hard pills
+- Suspended/Scheduled not sent: paused banner, "No results yet" dashed card, Details card
+- Drafts: readiness checklist (Sender/Recipients/Subject/Design), ready vs not-ready banners & buttons; "Schedule or send now" shows "Coming next" toast (sheet in batch 3)
+- Fixed: deep link/reload spinner on campaign & contact detail; toasts no longer block taps
+- Demo fixture #243 (2.04% delivery) added

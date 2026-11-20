@@ -4,8 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
-import { GlassHeader } from "@/src/components/Header";
-import { StateView, Loader, StatusBadge, Button, statusVisual } from "@/src/components/common";
+import { StateView, Loader, StatusBadge, Button } from "@/src/components/common";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
@@ -13,6 +12,7 @@ import { brevo, Campaign, Readiness } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { nf, fmtDateTime } from "@/src/lib/format";
+import { openWeb, WEB_HOME_URL, webCampaignReportUrl, webCampaignEditUrl } from "@/src/lib/open-web";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -56,6 +56,26 @@ const MISSING_LABEL: Record<string, string> = {
   design: "Design",
 };
 
+// Draft checklist steps, in display order, with the hint shown when missing.
+const STEPS: { key: string; label: string; hint: string }[] = [
+  { key: "sender", label: "Sender", hint: "Choose a sender" },
+  { key: "recipients", label: "Recipients", hint: "Choose recipients" },
+  { key: "subject", label: "Subject", hint: "Add a subject line" },
+  { key: "design", label: "Design", hint: "Create your email content" },
+];
+
+// Missing steps derived from the campaign itself (used when readiness isn't loaded).
+function deriveMissing(c: Campaign): string[] {
+  const raw = c as any;
+  const missing: string[] = [];
+  if (!c.sender?.email && !c.sender?.name) missing.push("sender");
+  const r = raw.recipients || {};
+  if (!(r.listIds?.length || r.segmentIds?.length)) missing.push("recipients");
+  if (!c.subject) missing.push("subject");
+  if (!raw.htmlContent) missing.push("design");
+  return missing;
+}
+
 // Rate 0–100 for a numerator/denominator, never NaN/Infinity.
 const ratePct = (num?: number, den?: number) => {
   if (!den || !num) return 0;
@@ -65,50 +85,53 @@ const ratePct = (num?: number, den?: number) => {
 // Web-style label: "0%" when zero, otherwise 2 decimals ("2.04%").
 const rateLabel = (v: number) => (v === 0 ? "0%" : `${v.toFixed(2)}%`);
 
-const GREEN = "#0B9A6F"; // Naos positive
-const RED = "#CF1A3B"; // Naos negative ink
-
 // Normalize Brevo status: case-insensitive + underscore/camelCase tolerant.
 // "in_process" | "inProcess" -> "inprocess", "Queued" -> "queued".
 const norm = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 type StatusAction = {
   target: string; // status to set
-  icon: keyof typeof Ionicons.glyphMap;
   confirm: string;
+  cancel: string;
   question: string;
   body: string;
-  tone: "warning" | "primary";
 };
 
 // STRICT rules:
 //   queued (scheduled) OR inprocess (running) -> Suspend
 //   suspended -> Resume
-//   everything else (draft, sent, archive, ...) -> no action
+//   everything else (draft, sent, archive, ...) -> no status action
 function actionFor(status?: string): StatusAction | null {
   const n = norm(status);
   if (n === "suspended") {
     return {
       target: "queued",
-      icon: "play",
-      confirm: "Resume",
+      confirm: "Resume campaign",
+      cancel: "Cancel",
       question: "Resume this campaign?",
       body: "The campaign will be re-queued and may resume sending.",
-      tone: "primary",
     };
   }
   if (n === "queued" || n === "inprocess") {
     return {
       target: "suspended",
-      icon: "pause",
-      confirm: "Suspend",
+      confirm: "Suspend campaign",
+      cancel: "Keep sending",
       question: "Suspend this campaign?",
       body: "The campaign will stop sending until you resume it.",
-      tone: "warning",
     };
   }
   return null;
 }
+
+type BarAction = {
+  title: string;
+  variant: "primary" | "secondary" | "destructive";
+  icon: keyof typeof Ionicons.glyphMap;
+  iconRight?: boolean;
+  onPress: () => void;
+  testID: string;
+};
 
 export default function CampaignDetail() {
   const insets = useSafeAreaInsets();
@@ -122,7 +145,7 @@ export default function CampaignDetail() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // --- Draft send/schedule ---
+  // --- Draft send/schedule (sheet is reworked in the next UI batch) ---
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sendMode, setSendMode] = useState<"now" | "later">("now");
@@ -160,6 +183,14 @@ export default function CampaignDetail() {
   }, [token, id]);
 
   useFocusRefetch(load);
+  // Deep link / reload: the saved session restores after first focus, so load once it arrives.
+  const hadToken = React.useRef(!!token);
+  React.useEffect(() => {
+    if (token && !hadToken.current) {
+      hadToken.current = true;
+      load();
+    }
+  }, [token, load]);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -169,18 +200,17 @@ export default function CampaignDetail() {
   const g = campaign?.statistics?.globalStats || {};
   const action = actionFor(campaign?.status);
   const destructive = action?.target === "suspended";
-  const senderText = campaign?.sender
-    ? [campaign.sender.name, campaign.sender.email].filter(Boolean).join(" · ")
-    : null;
-
   const nStatus = norm(campaign?.status);
-  // Date line (web parity).
-  let dateText = "—";
-  if (campaign?.sentDate) dateText = `Sent ${fmtDateTime(campaign.sentDate)}`;
-  else if (campaign?.scheduledAt) dateText = `Scheduled for ${fmtDateTime(campaign.scheduledAt)}`;
-  else if (nStatus === "cancelled" || nStatus === "suspended")
-    dateText = `Updated ${fmtDateTime(campaign?.modifiedAt)}`;
-  else dateText = `Created ${fmtDateTime(campaign?.createdAt)}`;
+  const isDraft = nStatus === "draft";
+  const isSuspended = nStatus === "suspended";
+
+  // Date next to the status pill (same rules as the list, lower-case lead-in).
+  let dateText = "";
+  if (campaign?.sentDate) dateText = `on ${fmtDateTime(campaign.sentDate)}`;
+  else if (nStatus === "cancelled" || nStatus === "canceled" || isSuspended)
+    dateText = `on ${fmtDateTime(campaign?.modifiedAt)}`;
+  else if (campaign?.scheduledAt) dateText = `for ${fmtDateTime(campaign.scheduledAt)}`;
+  else if (campaign?.createdAt) dateText = `created on ${fmtDateTime(campaign.createdAt)}`;
 
   // Rates (0–100).
   const deliveryRate = ratePct(g.delivered, g.sent);
@@ -191,11 +221,18 @@ export default function CampaignDetail() {
   const convRaw = (g as any).conversions;
   const hasConversions = typeof convRaw === "number";
   const convRate = ratePct(convRaw, g.delivered);
-  // Bars only for actually-sent campaigns.
-  const showBars =
-    (g.sent || 0) > 0 && !["draft", "queued", "inreview"].includes(nStatus);
+  const soft = g.softBounces || 0;
+  const hard = g.hardBounces || 0;
 
-  const isDraft = nStatus === "draft";
+  // Results exist once something has gone out (or the campaign is sent/archived).
+  const hasResults = (g.sent || 0) > 0 || nStatus === "sent" || nStatus === "archive" || nStatus === "archived";
+  const lowDelivery = (g.sent || 0) >= 10 && deliveryRate < 80;
+
+  // Draft readiness: API data when present, otherwise derived from the campaign.
+  const missing = readiness ? readiness.missing : campaign ? deriveMissing(campaign) : [];
+  const unsupportedRecipients = missing.includes("unsupported_recipients");
+  const draftReady = readiness ? readiness.ready : missing.length === 0;
+
   // Selected schedule moment (local) + display strings.
   const scheduledDate = (() => {
     const base = new Date();
@@ -285,14 +322,180 @@ export default function CampaignDetail() {
     }
   };
 
-  return (
-    <View style={styles.container}>
-      <GlassHeader title={campaign?.name || "Campaign"} onBack={goBack} />
+  // --- Sticky bottom action, one per status ---
+  let barAction: BarAction | null = null;
+  if (campaign) {
+    if (nStatus === "sent" || nStatus === "archive" || nStatus === "archived") {
+      barAction = {
+        title: "View full report on Brevo web",
+        variant: "secondary",
+        icon: "open-outline",
+        iconRight: true,
+        onPress: () => openWeb(webCampaignReportUrl(campaign.id)),
+        testID: "campaign-view-report",
+      };
+    } else if (action && destructive) {
+      barAction = {
+        title: "Suspend sending",
+        variant: "destructive",
+        icon: "pause-outline",
+        onPress: () => setConfirmOpen(true),
+        testID: "campaign-status-action",
+      };
+    } else if (action) {
+      barAction = {
+        title: "Resume sending",
+        variant: "primary",
+        icon: "play-outline",
+        onPress: () => setConfirmOpen(true),
+        testID: "campaign-status-action",
+      };
+    } else if (isDraft && draftReady) {
+      barAction = {
+        title: "Schedule or send now",
+        variant: "primary",
+        icon: "calendar-outline",
+        onPress: () => toast.show("Coming next", "info"),
+        testID: "campaign-schedule-button",
+      };
+    } else if (isDraft) {
+      barAction = {
+        title: "Continue on Brevo web",
+        variant: "primary",
+        icon: "open-outline",
+        iconRight: true,
+        onPress: () => openWeb(webCampaignEditUrl(campaign.id)),
+        testID: "campaign-continue-web",
+      };
+    }
+  }
 
+  const backLink = (
+    <Pressable onPress={goBack} hitSlop={12} style={styles.backLink} testID="header-back-button">
+      <Ionicons name="chevron-back" size={22} color={colors.accent} />
+      <Text style={styles.backText}>Campaigns</Text>
+    </Pressable>
+  );
+
+  const renderDraft = (c: Campaign) => (
+    <>
+      {draftReady ? (
+        <Banner
+          tone="success"
+          text="Ready to send. All required steps are complete."
+          linkLabel="Edit on Brevo web"
+          onLink={() => openWeb(webCampaignEditUrl(c.id))}
+          testID="campaign-ready"
+        />
+      ) : (
+        <Banner
+          tone="info"
+          text={
+            unsupportedRecipients
+              ? "This campaign includes individually added contacts. Schedule it on Brevo web."
+              : "Complete all required steps on Brevo web to send this campaign."
+          }
+          testID="campaign-not-ready"
+        />
+      )}
+      <Text style={styles.section}>{draftReady ? "Checklist" : "Required steps"}</Text>
+      <View style={styles.listCard} testID="campaign-checklist">
+        {STEPS.map((s, i) => {
+          const todo = missing.includes(s.key);
+          return (
+            <View key={s.key} style={[styles.stepRow, i > 0 && styles.rowDivider]} testID={`step-${s.key}`}>
+              <Ionicons
+                name={todo ? "ellipse-outline" : "checkmark-circle-outline"}
+                size={24}
+                color={todo ? colors.warningText : colors.accent}
+              />
+              <View style={styles.stepBody}>
+                <Text style={styles.stepLabel}>{s.label}</Text>
+                {todo ? <Text style={styles.stepHint}>{s.hint}</Text> : null}
+              </View>
+              {todo ? (
+                <View style={styles.todoTag} testID={`step-${s.key}-todo`}>
+                  <Text style={styles.todoText}>To do</Text>
+                </View>
+              ) : (
+                <Text style={styles.addedText}>Added</Text>
+              )}
+            </View>
+          );
+        })}
+      </View>
+    </>
+  );
+
+  const renderResults = () => (
+    <>
+      {lowDelivery ? (
+        <Banner
+          tone="warning"
+          text={`Most emails didn't arrive: only ${rateLabel(deliveryRate)} were delivered; ${nf(soft)} soft bounced${
+            hard > 0 ? ` and ${nf(hard)} hard bounced` : ""
+          }.`}
+          linkLabel="Review your sender and list on Brevo web"
+          onLink={() => openWeb(WEB_HOME_URL)}
+          testID="campaign-deliverability-warning"
+        />
+      ) : null}
+      <Text style={styles.section}>Performance</Text>
+      <View style={styles.grid}>
+        <CompactStat label="Delivered" value={nf(g.delivered)} sub={`${rateLabel(deliveryRate)} delivery rate`} rate={deliveryRate} barColor={colors.success} testID="kpi-delivered" />
+        <CompactStat label="Opens" value={nf(g.uniqueViews)} sub={`${rateLabel(openRate)} open rate`} rate={openRate} barColor={colors.success} testID="kpi-opens" />
+        <CompactStat label="Clicks" value={nf(g.uniqueClicks)} sub={`${rateLabel(clickRate)} click-through rate`} rate={clickRate} barColor={colors.success} testID="kpi-clicks" />
+        <CompactStat label="Unsubscribes" value={nf(g.unsubscriptions)} sub={`${rateLabel(unsubRate)} unsubscribe rate`} rate={unsubRate} barColor={colors.negativePress} testID="kpi-unsubscribes" />
+        {hasConversions ? (
+          <CompactStat label="Conversions" value={nf(convRaw)} sub={`${rateLabel(convRate)} conversion rate`} rate={convRate} barColor={colors.success} testID="kpi-conversions" />
+        ) : null}
+        <View style={[styles.stat, styles.statFull]} testID="kpi-bounces">
+          <View style={styles.bounceHead}>
+            <Text style={styles.statLabel}>Bounces</Text>
+            <Text style={styles.bounceTotal}>{nf(soft + hard)}</Text>
+          </View>
+          <View style={styles.pillRow}>
+            <View style={[styles.pill, { backgroundColor: colors.warningBg }]}>
+              <Text style={[styles.pillText, { color: colors.warningText }]}>{`Soft ${nf(soft)}`}</Text>
+            </View>
+            <View style={[styles.pill, { backgroundColor: colors.surfaceSecondary }]}>
+              <Text style={[styles.pillText, { color: colors.onSurfaceSecondary }]}>{`Hard ${nf(hard)}`}</Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    </>
+  );
+
+  const renderNotSent = (c: Campaign) => (
+    <>
+      <Text style={styles.section}>Performance</Text>
+      <View style={styles.dashedCard} testID="campaign-no-results">
+        <View style={styles.dashedIcon}>
+          <Ionicons name="pulse-outline" size={20} color={colors.onSurfaceSecondary} />
+        </View>
+        <Text style={styles.dashedTitle}>No results yet</Text>
+        <Text style={styles.dashedSub}>Stats appear once the first emails are delivered.</Text>
+      </View>
+      <Text style={styles.section}>Details</Text>
+      <View style={styles.listCard} testID="campaign-details">
+        <DetailRow label="Sender" value={c.sender?.name || c.sender?.email || "—"} />
+        {c.scheduledAt ? <DetailRow label="Scheduled for" value={fmtDateTime(c.scheduledAt)} divider /> : null}
+        <DetailRow label="Campaign ID" value={`#${c.id}`} divider />
+      </View>
+    </>
+  );
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
       {loading ? (
-        <Loader />
+        <>
+          <View style={styles.hPad}>{backLink}</View>
+          <Loader />
+        </>
       ) : error ? (
-        <View style={{ flex: 1, paddingTop: insets.top + 52 }}>
+        <>
+          <View style={styles.hPad}>{backLink}</View>
           <StateView
             icon="cloud-offline-outline"
             title="Couldn't load campaign"
@@ -301,166 +504,68 @@ export default function CampaignDetail() {
             onAction={load}
             testID="campaign-detail-error"
           />
-        </View>
+        </>
       ) : !campaign ? (
-        <View style={{ flex: 1, paddingTop: insets.top + 52 }}>
+        <>
+          <View style={styles.hPad}>{backLink}</View>
           <StateView
             icon="mail-outline"
             title="Campaign not found"
             message="This campaign is no longer available."
             testID="campaign-detail-empty"
           />
-        </View>
+        </>
       ) : (
-        <ScrollView
-          testID="campaign-detail-scroll"
-          contentContainerStyle={{
-            paddingTop: insets.top + 64,
-            paddingHorizontal: spacing.lg,
-            paddingBottom: insets.bottom + spacing.xxl,
-          }}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Header block */}
-          <View style={styles.titleRow}>
-            <Text style={styles.name} numberOfLines={3}>
+        <>
+          <ScrollView
+            testID="campaign-detail-scroll"
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              paddingHorizontal: spacing.lg,
+              paddingBottom: barAction ? spacing.xl : insets.bottom + spacing.xl,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            {backLink}
+            <Text style={styles.name} testID="campaign-title">
               {campaign.name}
             </Text>
-            <StatusBadge status={campaign.status} />
-          </View>
-          {campaign.subject ? <Text style={styles.subject}>{campaign.subject}</Text> : null}
-          <View style={styles.metaRow}>
-            <Ionicons name="pricetag-outline" size={13} color={colors.onSurfaceTertiary} />
             <Text style={styles.meta}>
-              {`#${campaign.id} · ${statusVisual(campaign.status).label}`}
+              {[campaign.sender?.name || campaign.sender?.email, `#${campaign.id}`].filter(Boolean).join(" · ")}
             </Text>
-          </View>
-          {senderText ? (
-            <View style={styles.metaRow}>
-              <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
-              <Text style={styles.meta}>{senderText}</Text>
+            <View style={styles.statusRow}>
+              <StatusBadge status={campaign.status} />
+              {dateText ? <Text style={styles.dateText}>{dateText}</Text> : null}
             </View>
-          ) : null}
-          <View style={styles.metaRow}>
-            <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceTertiary} />
-            <Text style={styles.meta}>{dateText}</Text>
-          </View>
 
-          {/* Draft: Schedule (ready) or an info box listing missing steps. */}
-          {isDraft && readiness ? (
-            readiness.ready ? (
-              <View style={styles.actionWrap}>
-                <Button
-                  testID="campaign-schedule-button"
-                  variant="primary"
-                  title="Schedule"
-                  icon="calendar-outline"
-                  onPress={() => {
-                    setSheetError(null);
-                    setScheduleOpen(true);
-                  }}
-                />
-              </View>
-            ) : readiness.missing.includes("unsupported_recipients") ? (
-              <View style={styles.infoBox} testID="campaign-not-ready">
-                <View style={styles.infoHead}>
-                  <Ionicons name="information-circle" size={18} color={colors.infoText} />
-                  <Text style={styles.infoText}>
-                    This campaign includes individually added contacts. Schedule it on Brevo web.
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.infoBox} testID="campaign-not-ready">
-                <View style={styles.infoHead}>
-                  <Ionicons name="information-circle" size={18} color={colors.infoText} />
-                  <Text style={styles.infoText}>Complete all required steps on Brevo web to send this campaign.</Text>
-                </View>
-                <View style={styles.infoList}>
-                  {readiness.missing.map((m) => (
-                    <Text key={m} style={styles.infoItem}>
-                      {"•  " + (MISSING_LABEL[m] || m)}
-                    </Text>
-                  ))}
-                </View>
-              </View>
-            )
-          ) : null}
-
-          {/* Visible, labeled Suspend/Resume action (only for applicable states) */}
-          {action ? (
-            <View style={styles.actionWrap}>
-              <Button
-                testID="campaign-status-action"
-                variant={destructive ? "destructive" : "primary"}
-                title={action.confirm}
-                icon={action.icon}
-                onPress={() => setConfirmOpen(true)}
-                loading={busy}
-              />
-            </View>
-          ) : null}
-
-          {/* KPI tiles — compact */}
-          <Text style={styles.section}>Performance</Text>
-          <View style={styles.grid}>
-            <CompactStat
-              icon="checkmark-done-outline"
-              label="Delivered"
-              value={nf(g.delivered)}
-              sub={`${rateLabel(deliveryRate)} delivery rate`}
-              rate={showBars ? deliveryRate : undefined}
-              barColor={GREEN}
-              testID="kpi-delivered"
-            />
-            <CompactStat
-              icon="mail-open-outline"
-              label="Opens"
-              value={nf(g.uniqueViews)}
-              sub={`${rateLabel(openRate)} open rate`}
-              rate={showBars ? openRate : undefined}
-              barColor={GREEN}
-              testID="kpi-opens"
-            />
-            <CompactStat
-              icon="link-outline"
-              label="Clicks"
-              value={nf(g.uniqueClicks)}
-              sub={`${rateLabel(clickRate)} click-through rate`}
-              rate={showBars ? clickRate : undefined}
-              barColor={GREEN}
-              testID="kpi-clicks"
-            />
-            <CompactStat
-              icon="person-remove-outline"
-              label="Unsubscribes"
-              value={nf(g.unsubscriptions)}
-              sub={`${rateLabel(unsubRate)} unsubscribe rate`}
-              rate={showBars ? unsubRate : undefined}
-              barColor={RED}
-              testID="kpi-unsubscribes"
-            />
-            {hasConversions ? (
-              <CompactStat
-                icon="trending-up-outline"
-                label="Conversions"
-                value={nf(convRaw)}
-                sub={`${rateLabel(convRate)} conversion rate`}
-                rate={showBars ? convRate : undefined}
-                barColor={GREEN}
-                testID="kpi-conversions"
+            {isSuspended ? (
+              <Banner
+                tone="info"
+                text={`Sending is paused.${
+                  campaign.scheduledAt ? ` Scheduled for ${fmtDateTime(campaign.scheduledAt)}.` : ""
+                } Nothing goes out until you resume.`}
+                testID="campaign-paused"
               />
             ) : null}
-            <CompactStat
-              icon="warning-outline"
-              label="Bounces"
-              value={nf((g.softBounces || 0) + (g.hardBounces || 0))}
-              sub={`${nf(g.softBounces)} soft · ${nf(g.hardBounces)} hard`}
-              testID="kpi-bounces"
-              full
-            />
-          </View>
-        </ScrollView>
+
+            {isDraft ? renderDraft(campaign) : hasResults ? renderResults() : renderNotSent(campaign)}
+          </ScrollView>
+
+          {barAction ? (
+            <View style={[styles.bar, { paddingBottom: insets.bottom + spacing.md }]} testID="campaign-bottom-bar">
+              <Button
+                fullWidth
+                title={barAction.title}
+                variant={barAction.variant}
+                icon={barAction.icon}
+                iconRight={barAction.iconRight}
+                onPress={barAction.onPress}
+                loading={barAction.testID === "campaign-status-action" && busy}
+                testID={barAction.testID}
+              />
+            </View>
+          ) : null}
+        </>
       )}
 
       {/* Schedule sheet (drafts) */}
@@ -621,7 +726,7 @@ export default function CampaignDetail() {
         testID="campaign-send-confirm"
       />
 
-      {/* Confirmation modal */}
+      {/* Suspend / resume confirmation */}
       <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard} testID="campaign-confirm-modal">
@@ -631,7 +736,7 @@ export default function CampaignDetail() {
               <View style={styles.modalBtnWrap}>
                 <Button
                   variant="secondary"
-                  title="Cancel"
+                  title={action?.cancel || "Cancel"}
                   fullWidth
                   onPress={() => setConfirmOpen(false)}
                   disabled={busy}
@@ -656,82 +761,171 @@ export default function CampaignDetail() {
   );
 }
 
+const BANNER_TONES = {
+  info: { bg: colors.infoBg, icon: "information-circle" as const, color: colors.accent },
+  success: { bg: colors.successBg, icon: "checkmark-circle" as const, color: colors.success },
+  warning: { bg: colors.warningBg, icon: "warning" as const, color: colors.warning },
+};
+
+function Banner({
+  tone,
+  text,
+  linkLabel,
+  onLink,
+  testID,
+}: {
+  tone: keyof typeof BANNER_TONES;
+  text: string;
+  linkLabel?: string;
+  onLink?: () => void;
+  testID?: string;
+}) {
+  const t = BANNER_TONES[tone];
+  return (
+    <View style={[styles.banner, { backgroundColor: t.bg }]} testID={testID}>
+      <Ionicons name={t.icon} size={18} color={t.color} style={{ marginTop: 1 }} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.bannerText}>{text}</Text>
+        {linkLabel && onLink ? (
+          <Pressable onPress={onLink} hitSlop={8} testID={testID ? `${testID}-link` : undefined}>
+            <Text style={styles.bannerLink}>{linkLabel}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function DetailRow({ label, value, divider }: { label: string; value: string; divider?: boolean }) {
+  return (
+    <View style={[styles.detailRow, divider && styles.rowDivider]}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 function CompactStat({
-  icon,
   label,
   value,
   sub,
   testID,
-  full,
   rate,
   barColor,
 }: {
-  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
   sub: string;
   testID?: string;
-  full?: boolean;
-  rate?: number;
-  barColor?: string;
+  rate: number;
+  barColor: string;
 }) {
   // Fill width: 0% -> none; non-zero under 1% -> 2px sliver; else the %.
-  const showBar = rate !== undefined;
   const fillStyle =
-    rate === undefined || rate <= 0
-      ? null
-      : rate < 1
-      ? { width: 2 as const }
-      : { width: `${Math.min(rate, 100)}%` as const };
+    rate <= 0 ? null : rate < 1 ? { width: 2 as const } : { width: `${Math.min(rate, 100)}%` as const };
   return (
-    <View
-      style={[styles.stat, full && styles.statFull]}
-      testID={testID}
-      accessibilityLabel={`${label} ${value}, ${sub}`}
-    >
-      <View style={styles.statHead}>
-        <Ionicons name={icon} size={16} color={colors.onSurfaceSecondary} />
-        <Text style={styles.statLabel} numberOfLines={1}>
-          {label}
-        </Text>
-      </View>
+    <View style={styles.stat} testID={testID} accessibilityLabel={`${label} ${value}, ${sub}`}>
+      <Text style={styles.statLabel} numberOfLines={1}>
+        {label}
+      </Text>
       <Text style={styles.statValue} numberOfLines={1}>
         {value}
       </Text>
       <Text style={styles.statSub} numberOfLines={1}>
         {sub}
       </Text>
-      {showBar ? (
-        <View style={styles.barTrack}>
-          {fillStyle ? <View style={[styles.barFill, { backgroundColor: barColor }, fillStyle]} /> : null}
-        </View>
-      ) : null}
+      <View style={styles.barTrack}>
+        {fillStyle ? <View style={[styles.barFill, { backgroundColor: barColor }, fillStyle]} /> : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
-  name: { flex: 1, fontSize: font.xxl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5 },
-  subject: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.sm },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
-  meta: { fontSize: font.sm, color: colors.onSurfaceTertiary },
+  hPad: { paddingHorizontal: spacing.lg },
+  backLink: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", minHeight: 44, marginLeft: -6 },
+  backText: { fontSize: font.lg, color: colors.accent, fontFamily: fonts.medium },
+  name: { fontSize: font.xxl + 4, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5, marginTop: spacing.xs },
+  meta: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.xs },
+  statusRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.md, marginTop: spacing.md },
+  dateText: { fontSize: font.base, color: colors.onSurfaceSecondary },
 
-  // Naos primary button — charcoal rounded rectangle (not a pill)
-  actionWrap: { alignItems: "flex-start", marginTop: spacing.lg },
-
-  // Not-ready info box
-  infoBox: {
+  banner: {
+    flexDirection: "row",
+    gap: spacing.sm,
     marginTop: spacing.lg,
-    backgroundColor: colors.infoBg,
-    borderRadius: radius.lg,
-    padding: spacing.md,
+    borderRadius: radius.md,
+    padding: spacing.lg,
   },
-  infoHead: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
-  infoText: { flex: 1, fontSize: font.base, color: colors.infoText, lineHeight: 20, fontFamily: fonts.semibold },
-  infoList: { marginTop: spacing.sm, paddingLeft: 26, gap: 2 },
-  infoItem: { fontSize: font.base, color: colors.infoText },
+  bannerText: { fontSize: font.base, color: colors.onSurface, lineHeight: 21 },
+  bannerLink: {
+    fontSize: font.base,
+    color: colors.onSurface,
+    textDecorationLine: "underline",
+    marginTop: spacing.sm,
+    fontFamily: fonts.medium,
+  },
+
+  section: {
+    fontSize: font.lg + 2,
+    fontFamily: fonts.bold,
+    color: colors.onSurface,
+    marginTop: spacing.xl,
+    marginBottom: spacing.md,
+  },
+
+  // Bordered list card (checklist, details)
+  listCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    overflow: "hidden",
+  },
+  rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  stepRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, minHeight: 56 },
+  stepBody: { flex: 1 },
+  stepLabel: { fontSize: font.lg, color: colors.onSurface, fontFamily: fonts.medium },
+  stepHint: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  todoTag: { backgroundColor: colors.warningBg, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  todoText: { fontSize: font.sm, color: colors.warningText, fontFamily: fonts.semibold },
+  addedText: { fontSize: font.base, color: colors.onSurfaceSecondary },
+  detailRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.lg },
+  detailLabel: { fontSize: font.base, color: colors.onSurfaceSecondary },
+  detailValue: { flexShrink: 1, fontSize: font.base, color: colors.onSurface, textAlign: "right" },
+
+  // Dashed "no results" card
+  dashedCard: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.borderStrong,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+  },
+  dashedIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  dashedTitle: { fontSize: font.lg, fontFamily: fonts.bold, color: colors.onSurface },
+  dashedSub: { fontSize: font.sm + 1, color: colors.onSurfaceSecondary, marginTop: spacing.xs, textAlign: "center" },
+
+  // Sticky bottom action bar
+  bar: {
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
 
   // Schedule sheet
   sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
@@ -776,14 +970,6 @@ const styles = StyleSheet.create({
   tzText: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.sm },
   sheetFooter: { marginTop: spacing.lg },
 
-  section: {
-    fontSize: font.lg,
-    fontFamily: fonts.bold,
-    color: colors.onSurface,
-    marginTop: spacing.xl,
-    marginBottom: spacing.md,
-  },
-
   // Compact 2-column stat grid
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   stat: {
@@ -791,21 +977,19 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 1,
+    padding: spacing.lg,
   },
   statFull: { width: "100%" },
-  statHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  statLabel: { flex: 1, fontSize: font.sm, color: colors.onSurfaceSecondary, fontFamily: fonts.semibold },
-  statValue: { fontSize: 22, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5, marginTop: spacing.sm },
-  statSub: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: 1 },
+  statLabel: { fontSize: font.base, color: colors.onSurfaceSecondary },
+  statValue: { fontSize: font.xxl + 4, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5, marginTop: spacing.xs },
+  statSub: { fontSize: font.sm + 1, color: colors.onSurfaceSecondary, marginTop: 2 },
+  bounceHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  bounceTotal: { fontSize: font.xxl + 4, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.5 },
+  pillRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  pill: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  pillText: { fontSize: font.sm + 1, fontFamily: fonts.semibold },
 
   // Rate bar
   barTrack: {

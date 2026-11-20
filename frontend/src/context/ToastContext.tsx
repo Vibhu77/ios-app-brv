@@ -55,7 +55,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           pointerEvents="box-none"
           style={[styles.wrap, { bottom: insets.bottom + spacing.lg, opacity }]}
         >
-          <View style={[styles.toast, { backgroundColor: s.bg }]} testID="app-toast">
+          <View pointerEvents="box-none" style={[styles.toast, { backgroundColor: s.bg }]} testID="app-toast">
             <Ionicons name={s.icon} size={20} color={s.fg} />
             <Text style={[styles.text, { color: s.fg }]} numberOfLines={3}>
               {message}

@@ -1,0 +1,60 @@
+{
+  "summary": "UI refresh batch 2/4 - campaign detail screen (frontend only, DEMO mode). Tested via in-app navigation from Campaigns list on 375x667 and 360x640. Header (purple 'Campaigns' back link, wrapping title, '<sender> · #id', status pill + on/for/created on date), per-status sticky bottom bar, suspend/resume confirm flows, draft 'Coming next' toast, deliverability warning (#243), sent tiles + Bounces card, suspended/scheduled not-sent layout, draft ready/not-ready checklists, external Brevo links (open popup, no crash), back link and small-viewport scroll all PASS. 1 functional bug: deep-linking/reloading /campaign/<id> leaves the screen on an infinite loader. Minor: toast covers and intercepts taps on the sticky bottom bar; KPI tile sub-labels truncate at 360-375px; #16 'Required steps' shows all steps 'Added'. No deprecated Expo packages detected.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CampaignDetail cold start / deep link", "issue": "Opening /campaign/<id> by full page load (reload, deep link, push/universal link cold start) stays on the spinner forever. RCA: unlike (tabs)/_layout.tsx, this route has no gate on BrevoContext.loading. On first focus the token is still '' (restored async from secure storage), so load() returns early at line 162 and loading never goes false. useFocusRefetch uses useFocusEffect(useCallback(..., [])), so it does not run again when the token arrives. Reproduced: after a demo login, page.goto('/campaign/5') still shows the loader after 20s, while page.goto('/campaigns') loads fine. app/contact/[id].tsx line 66 has the same pattern.", "testID": "campaign-detail-scroll", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Campaign detail - sticky bar + toast", "issues": [
+        "The success/info toast ('Campaign suspended', 'Campaign resumed', 'Coming next') is drawn on top of the sticky bottom bar for about 4-5s. During that time elementFromPoint at the 'Resume sending' button center returns app-toast, so the toast swallows taps on the primary action. Move the toast above the bar (offset by the bar height) or show it at the top."
+      ]},
+      {"screen": "Campaign detail - Performance tiles", "issues": [
+        "At 360-375px width the tile sub-labels are cut off by numberOfLines=1 ('2.11% click-throug…', '0.44% unsubscribe…'). Allow 2 lines or use shorter labels such as 'click rate'."
+      ]},
+      {"screen": "Confirm dialogs", "issues": [
+        "The 'Suspend campaign' / 'Resume campaign' confirm button labels wrap onto 2 lines inside the 2-column modal at 375px. Minor."
+      ]},
+      {"screen": "Draft #16 (unsupported_recipients)", "issues": [
+        "The banner says to schedule on Brevo web and the section is titled 'Required steps', but all 4 steps show 'Added' and none is marked 'To do'. Consider flagging Recipients with a hint such as 'Individually added contacts aren't supported'."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_results_detail": {
+    "header": "PASS - Purple '< Campaigns' back link; #3 long title wraps fully (6 lines, no truncation); 'Acme Demo · #id'; pill + 'on <date>' (sent/suspended/cancelled), 'for <date>' (scheduled #3), 'created on <date>' (draft/running).",
+    "bar_sent_archive": "PASS - #1, #6, #12, #243: secondary 'View full report on Brevo web' with external icon; opens a login.brevo.com popup targeting /marketing-campaign/report/1; no crash, app stays on detail.",
+    "bar_scheduled_running": "PASS - #3 queued and #4 inProcess show destructive 'Suspend sending'. Dialog shows 'Suspend this campaign?' / 'The campaign will stop sending until you resume it.' / 'Keep sending' / 'Suspend campaign'. Keep sending closes it; confirming shows a 'Campaign suspended' toast, the badge changes to Suspended, the paused banner appears and the bar becomes 'Resume sending'.",
+    "bar_suspended_resume": "PASS - 'Resume this campaign?' / 'Resume campaign' re-queues the campaign, shows a 'Campaign resumed' toast, the badge changes to Scheduled, the bar returns to 'Suspend sending' and the list card updates.",
+    "bar_draft_ready": "PASS - #2 'Schedule or send now' shows the 'Coming next' toast.",
+    "bar_draft_not_ready": "PASS - #7 and #16 show 'Continue on Brevo web'.",
+    "no_bar": "PASS - #8 (actually 'In review', not cancelled) and #21 (Canceled) have no bottom bar.",
+    "sent_layout": "PASS - 4 tiles with rate bars; Bounces card with total on the right and 'Soft n' / 'Hard n' pills. #243 warning reads 'Most emails didn't arrive: only 2.04% were delivered; 48 soft bounced.' and its link opens Brevo web. #12 zero-delivered shows 0%, with no warning since sent=0.",
+    "suspended_layout": "PASS - #5 shows 'Sending is paused. Nothing goes out until you resume.' (the 'Scheduled for ...' sentence is included when scheduledAt exists, e.g. #3 after suspend), the dashed 'No results yet' card and Details (Sender, Campaign ID; Scheduled for on #3).",
+    "draft_layout": "PASS - #2 shows the success banner, 'Edit on Brevo web' link and 'Checklist' with 4 'Added'. #7 shows the info banner, 'Required steps', and Subject with a 'To do' tag and 'Add a subject line'.",
+    "small_viewport_360x640": "PASS - After scrolling to the bottom, the last card ends 24px above the bar top (37px on #7) for #1, #2, #3, #5, #7 and #243.",
+    "back_link": "PASS - Returns to /campaigns every time.",
+    "deep_link_reload": "FAIL - see ui_bugs."
+  },
+  "test_report_links": [],
+  "action_items": [
+    "HIGH: Fix the infinite loader on cold deep link to /campaign/<id> (and /contact/<id>). Either gate on BrevoContext.loading and redirect to /login when there is no token, as (tabs)/_layout does, or add an effect that calls load() when the token becomes non-empty. Also setLoading(false) or redirect when the token is empty after restore.",
+    "Keep the toast from covering or intercepting the sticky bottom bar on the campaign detail screen (offset it by the bar height, or show it at the top).",
+    "Allow KPI tile sub-labels to wrap to 2 lines or shorten them so they are not truncated at 360-375px.",
+    "Optional: for unsupported_recipients drafts (#16), flag the Recipients step as 'To do' with a relevant hint.",
+    "FYI: in the fixtures, #8 is 'inReview', not cancelled; the cancelled fixtures are #21 and #35."
+  ],
+  "critical_code_review_comments": [
+    "app/campaign/[id].tsx is 1016 lines (more than 700). Split out the schedule sheet (currently dead: scheduleOpen is never set to true), Banner, CompactStat and DetailRow into separate modules.",
+    "load() returns early without clearing the loading state when the token is empty (line 162), which causes the deep-link hang.",
+    "In the demo client, resuming always sets the status to 'queued', so a suspended campaign that was running comes back as Scheduled. This is acceptable but worth noting."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "~93% (13/14 scenarios pass; deep-link reload fails)"},
+  "seed_data_creation": "None. The suspend/resume tests changed only in-memory demo fixtures (#3, #4), which reset on reload.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "DEMO mode: tap login-demo-button on /login, then navigate in-app by tapping campaign-card-<id> (scroll the list with mouse.wheel). Do NOT page.goto /campaign/<id>: it hangs until the deep-link bug is fixed. Use ':visible' on testIDs because stacked screens stay in the DOM. Status cycle: #1 sent, #2 draft ready, #3 queued (long name), #4 inProcess, #5 suspended, #6 archive, #7 draft without subject, #8 inReview, #12 sent with zero delivered, #16 draft with unsupported_recipients, #21 cancelled, #243 sent with low delivery.",
+  "rca_of_issue": "Deep link hang: the CampaignDetail route is outside (tabs), so nothing gates rendering on session restore. useFocusRefetch fires once on focus with token='', and load() early-returns. The memoized focus callback has [] deps, so it does not fire again when the token changes. Reproduce: demo login, then reload /campaign/5. Fix: add useEffect(() => { if (token) load(); }, [token]), or gate the route on context loading."
+}

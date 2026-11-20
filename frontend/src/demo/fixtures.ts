@@ -63,7 +63,7 @@ export function makeCampaigns(): Campaign[] {
     "inReview", "cancelling", "sent", "sent", "draft", "queued", "sent",
   ];
   const ids = [...Array(39)].map((_, i) => i + 1); // 1..39 (includes 25)
-  ids.push(250);
+  ids.push(250, 243);
 
   return ids.map((id, i) => {
     let status = statusCycle[i % statusCycle.length];
@@ -90,6 +90,11 @@ export function makeCampaigns(): Campaign[] {
       name = `Campaign ${id} · Headline feature`;
     }
 
+    if (id === 243) {
+      status = "sent"; // edge: very low delivery rate (1/49 = 2.04%)
+      name = "Spring restock alert";
+    }
+
     const createdAt = new Date(BASE - i * DAY).toISOString();
     const modifiedAt = new Date(BASE - i * DAY + 6 * 3600000).toISOString();
     const isSent = SENT_STATUSES.has(status);
@@ -104,7 +109,14 @@ export function makeCampaigns(): Campaign[] {
       sentDate: isSent ? new Date(BASE - i * DAY + 3 * 3600000).toISOString() : undefined,
       scheduledAt: status === "queued" ? new Date(BASE + (5 + i) * DAY).toISOString() : undefined,
       sender: { name: "Acme Demo", email: "hello@acme-demo.com", id: 1 },
-      statistics: { globalStats: isSent ? mkStats(id, zeroDelivered) : mkStats(id, true) },
+      statistics: {
+        globalStats:
+          id === 243
+            ? { ...mkStats(id, true), sent: 49, delivered: 1, softBounces: 48 }
+            : isSent
+            ? mkStats(id, zeroDelivered)
+            : mkStats(id, true),
+      },
     };
   });
 }

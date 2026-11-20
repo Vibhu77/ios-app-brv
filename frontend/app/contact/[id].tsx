@@ -84,6 +84,14 @@ export default function ContactDetail() {
   }, [token, id]);
 
   useFocusRefetch(load);
+  // Deep link / reload: the saved session restores after first focus, so load once it arrives.
+  const hadToken = React.useRef(!!token);
+  useEffect(() => {
+    if (token && !hadToken.current) {
+      hadToken.current = true;
+      load();
+    }
+  }, [token, load]);
 
   // Remove the contact locally + from caches, then return to the list. Brevo's
   // deletion is async (a few minutes), so we also record the id in a "deleted"
