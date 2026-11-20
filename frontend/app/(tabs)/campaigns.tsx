@@ -13,7 +13,7 @@ import { brevo, Campaign } from "@/src/lib/brevo";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { usePrefs } from "@/src/hooks/use-prefs";
-import { nf, pct2, rate01, fmtDate } from "@/src/lib/format";
+import { nf, pct2, rate01, fmtDateTime } from "@/src/lib/format";
 
 const BAR_GREEN = "#0B9A6F"; // Naos positive fill
 
@@ -26,6 +26,21 @@ const DOT = {
   orange: "#FF6E3D",
   red: "#FF3A51",
 };
+
+// Returns the muted sub-line shown on each campaign card:
+//   "#id • Sent on <date>"        (sentDate exists)
+//   "#id • Scheduled for <date>"  (scheduledAt exists)
+//   "#id • Updated on <date>"     (suspended/canceled: modifiedAt)
+//   "#id • Created on <date>"     (otherwise)
+function campaignMetaLine(c: Campaign): string {
+  if (c.sentDate) return `Sent on ${fmtDateTime(c.sentDate)}`;
+  if (c.scheduledAt) return `Scheduled for ${fmtDateTime(c.scheduledAt)}`;
+  const st = (c.status || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (st === "suspended" || st === "cancelled" || st === "cancelling" || st === "canceled") {
+    return `Updated on ${fmtDateTime(c.modifiedAt)}`;
+  }
+  return `Created on ${fmtDateTime(c.createdAt)}`;
+}
 type StatusOpt = { key: string; label: string; dot: string | null; match: string[] | null };
 const STATUS_OPTS: StatusOpt[] = [
   { key: "all", label: "All statuses", dot: null, match: null },
@@ -222,8 +237,8 @@ export default function CampaignsScreen() {
       <View style={styles.summaryDivider} />
       <View style={styles.summaryStats}>
         <SummaryStat label="Campaigns" value={nf(campaigns.length)} />
-        <SummaryStat label="Avg open" value={pct2(totalViews, totalDelivered)} />
-        <SummaryStat label="Avg click" value={pct2(totalClicks, totalDelivered)} />
+        <SummaryStat label="Avg open rate" value={pct2(totalViews, totalDelivered)} />
+        <SummaryStat label="Avg click rate" value={pct2(totalClicks, totalDelivered)} />
       </View>
     </View>
   );
@@ -244,6 +259,7 @@ export default function CampaignsScreen() {
   const renderItem = ({ item }: { item: Campaign }) => {
     const g = item.statistics?.globalStats || {};
     const isSent = (g.sent || 0) > 0;
+    const metaLine = campaignMetaLine(item);
     return (
       <Pressable
         testID={`campaign-card-${item.id}`}
@@ -251,22 +267,31 @@ export default function CampaignsScreen() {
         style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
       >
         <Card style={styles.campaignCard}>
-          <View style={styles.campaignHead}>
-            <Text style={styles.campaignName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <StatusBadge status={item.status} />
-          </View>
-          <Text style={styles.campaignSub} numberOfLines={1}>
-            {item.subject || "No subject"}
+          {/* Status pill — top of card */}
+          <StatusBadge status={item.status} />
+          {/* Name — up to 2 lines */}
+          <Text style={styles.campaignName} numberOfLines={2}>
+            {item.name}
           </Text>
-          <Text style={styles.campaignDate}>{fmtDate(item.sentDate || item.createdAt)}</Text>
+          {/* Muted ID + status-relative date line */}
+          <Text style={styles.campaignMeta} numberOfLines={1}>
+            {`#${item.id} \u2022 ${metaLine}`}
+          </Text>
+          {/* Divider + 3 KPI micro-stats */}
           <View style={styles.miniStats}>
-            <MiniStat label="Opens" value={pct2(g.uniqueViews, g.delivered)} rate={isSent ? rate01(g.uniqueViews, g.delivered) : undefined} />
-            <View style={styles.miniDivider} />
-            <MiniStat label="Clicks" value={pct2(g.uniqueClicks, g.delivered)} rate={isSent ? rate01(g.uniqueClicks, g.delivered) : undefined} />
-            <View style={styles.miniDivider} />
             <MiniStat label="Delivered" value={nf(g.delivered)} />
+            <View style={styles.miniDivider} />
+            <MiniStat
+              label="Open rate"
+              value={pct2(g.uniqueViews, g.delivered)}
+              rate={isSent ? rate01(g.uniqueViews, g.delivered) : undefined}
+            />
+            <View style={styles.miniDivider} />
+            <MiniStat
+              label="Click rate"
+              value={pct2(g.uniqueClicks, g.delivered)}
+              rate={isSent ? rate01(g.uniqueClicks, g.delivered) : undefined}
+            />
           </View>
         </Card>
       </Pressable>
@@ -376,7 +401,7 @@ export default function CampaignsScreen() {
       <Modal visible={statusOpen} transparent animationType="fade" onRequestClose={() => setStatusOpen(false)}>
         <Pressable style={styles.sortBackdrop} onPress={() => setStatusOpen(false)}>
           <Pressable style={[styles.sortSheet, { paddingBottom: insets.bottom + spacing.md }]} onPress={() => {}}>
-            <Text style={styles.sortTitle}>Status</Text>
+            <Text style={styles.sortTitle}>Campaign status</Text>
             {STATUS_OPTS.map((o) => {
               const active = statusKey === o.key;
               return (
@@ -545,10 +570,10 @@ const styles = StyleSheet.create({
   summaryStatLabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 2, fontWeight: "600" },
   // --- Campaign card ---
   campaignCard: { marginBottom: spacing.md },
-  campaignHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
-  campaignName: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface, flex: 1 },
-  campaignSub: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: 2 },
-  campaignDate: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.xs },
+  // name sits below the status pill, can wrap to 2 lines
+  campaignName: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface, marginTop: spacing.sm },
+  // muted "#id • Sent on …" line
+  campaignMeta: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.xs },
   miniStats: {
     flexDirection: "row",
     alignItems: "center",

@@ -91,6 +91,7 @@ export function makeCampaigns(): Campaign[] {
     }
 
     const createdAt = new Date(BASE - i * DAY).toISOString();
+    const modifiedAt = new Date(BASE - i * DAY + 6 * 3600000).toISOString();
     const isSent = SENT_STATUSES.has(status);
     return {
       id,
@@ -99,7 +100,9 @@ export function makeCampaigns(): Campaign[] {
       type: "classic",
       status,
       createdAt,
+      modifiedAt,
       sentDate: isSent ? new Date(BASE - i * DAY + 3 * 3600000).toISOString() : undefined,
+      scheduledAt: status === "queued" ? new Date(BASE + (5 + i) * DAY).toISOString() : undefined,
       sender: { name: "Acme Demo", email: "hello@acme-demo.com", id: 1 },
       statistics: { globalStats: isSent ? mkStats(id, zeroDelivered) : mkStats(id, true) },
     };

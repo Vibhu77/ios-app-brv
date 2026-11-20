@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { Image as ExpoImage } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, radius, font, shadow, fonts } from "@/src/theme";
+import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { titleCase } from "@/src/lib/format";
 
 const EMPTY_ILLUSTRATION = require("@/assets/empty-state.png");
@@ -104,46 +104,49 @@ const chipStyles = StyleSheet.create({
 // ---------- Status visual (single source for list, chips and detail) ----------
 const normStatus = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-export type StatusVisual = { bg: string; fg: string; label: string };
+// dot  = semantic accent colour for the dot
+// border = tinted 1px border
+// text is always onSurface (#1B1B1B) for contrast
+export type StatusVisual = { bg: string; dot: string; border: string; label: string };
 
 // One mapping used by the card badge, the filter selector and the detail.
 // Labels and spelling match Brevo web ("Canceled" with one L).
 export function statusVisual(status?: string): StatusVisual {
   switch (normStatus(status)) {
     case "sent":
-      return { bg: colors.successBg, fg: colors.successText, label: "Sent" };
+      return { bg: colors.successBg, dot: "#0B9A6F", border: "rgba(11,154,111,0.3)", label: "Sent" };
     case "queued":
     case "scheduled":
-      return { bg: colors.infoBg, fg: colors.infoText, label: "Scheduled" };
+      return { bg: colors.infoBg, dot: "#6358DE", border: "rgba(99,88,222,0.3)", label: "Scheduled" };
     case "inprocess":
     case "running":
-      return { bg: colors.warningBg, fg: colors.warningText, label: "Running" };
+      return { bg: colors.warningBg, dot: "#FF6E3D", border: "rgba(255,110,61,0.3)", label: "Running" };
     case "suspended":
-      return { bg: colors.errorBg, fg: colors.errorText, label: "Suspended" };
+      return { bg: colors.errorBg, dot: "#FF3A51", border: "rgba(255,58,81,0.3)", label: "Suspended" };
     case "rejected":
-      return { bg: colors.errorBg, fg: colors.errorText, label: "Rejected" };
+      return { bg: colors.errorBg, dot: "#FF3A51", border: "rgba(255,58,81,0.3)", label: "Rejected" };
     case "cancelled":
     case "cancelling":
     case "canceled":
-      return { bg: colors.errorBg, fg: colors.errorText, label: "Canceled" };
+      return { bg: colors.errorBg, dot: "#FF3A51", border: "rgba(255,58,81,0.3)", label: "Canceled" };
     case "archive":
     case "archived":
-      return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, label: "Archived" };
+      return { bg: colors.surfaceSecondary, dot: colors.onSurfaceTertiary, border: colors.border, label: "Archived" };
     case "draft":
-      return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, label: "Draft" };
+      return { bg: colors.surfaceSecondary, dot: colors.onSurfaceTertiary, border: colors.border, label: "Draft" };
     case "inreview":
-      return { bg: colors.infoBg, fg: colors.infoText, label: "In review" };
+      return { bg: colors.infoBg, dot: "#6358DE", border: "rgba(99,88,222,0.3)", label: "In review" };
     default:
-      return { bg: colors.surfaceSecondary, fg: colors.onSurfaceSecondary, label: titleCase(status || "draft") };
+      return { bg: colors.surfaceSecondary, dot: colors.onSurfaceTertiary, border: colors.border, label: titleCase(status || "draft") };
   }
 }
 
 export function StatusBadge({ status }: { status?: string }) {
   const s = statusVisual(status);
   return (
-    <View style={[badgeStyles.badge, { backgroundColor: s.bg }]}>
-      <View style={[badgeStyles.dot, { backgroundColor: s.fg }]} />
-      <Text style={[badgeStyles.badgeText, { color: s.fg }]}>{s.label}</Text>
+    <View style={[badgeStyles.badge, { backgroundColor: s.bg, borderColor: s.border }]}>
+      <View style={[badgeStyles.dot, { backgroundColor: s.dot }]} />
+      <Text style={badgeStyles.badgeText}>{s.label}</Text>
     </View>
   );
 }
@@ -153,12 +156,15 @@ const badgeStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    height: 28,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    alignSelf: "flex-start",
   },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  badgeText: { fontSize: font.sm, fontWeight: "700" },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  // Text is always dark for legibility on tinted backgrounds.
+  badgeText: { fontSize: font.sm, fontFamily: fonts.semibold, color: colors.onSurface },
 });
 
 // ---------- Avatar ----------
@@ -264,12 +270,13 @@ export function StatRow({
 // ---------- Naos NaosButton (single reusable button) ----------
 type ButtonVariant = "primary" | "destructive" | "secondary" | "destructiveGhost";
 
-const BUTTON_VARIANTS: Record<ButtonVariant, { bg: string; border: string; fg: string }> = {
-  primary: { bg: colors.brandPrimary, border: colors.brandPrimary, fg: "#FFFFFF" },
-  destructive: { bg: colors.negativePress, border: colors.negativePress, fg: "#FFFFFF" },
-  secondary: { bg: colors.surfaceSecondary, border: colors.border, fg: colors.onSurface },
+const BUTTON_VARIANTS: Record<ButtonVariant, { bg: string; border: string; borderWidth: number; fg: string }> = {
+  primary: { bg: colors.brandPrimary, border: colors.brandPrimary, borderWidth: 1, fg: "#FFFFFF" },
+  destructive: { bg: colors.negativePress, border: colors.negativePress, borderWidth: 1, fg: "#FFFFFF" },
+  // White bg, 2px charcoal-grey border per Naos design system.
+  secondary: { bg: colors.surface, border: "#D0D0D0", borderWidth: 2, fg: colors.onSurface },
   // Secondary chrome with negative-red ink (Naos #CF1A3B) — used for Delete.
-  destructiveGhost: { bg: colors.surfaceSecondary, border: colors.border, fg: colors.errorText },
+  destructiveGhost: { bg: colors.surfaceSecondary, border: colors.border, borderWidth: 1, fg: colors.errorText },
 };
 
 export function Button({
@@ -300,7 +307,7 @@ export function Button({
       disabled={isDisabled}
       style={({ pressed }) => [
         btnStyles.base,
-        { backgroundColor: v.bg, borderColor: v.border },
+        { backgroundColor: v.bg, borderColor: v.border, borderWidth: v.borderWidth },
         fullWidth && btnStyles.fullWidth,
         { opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1 },
       ]}
@@ -325,9 +332,8 @@ const btnStyles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: 7,
     paddingHorizontal: 15,
-    minHeight: 40,
+    minHeight: 48,
     borderRadius: 16,
-    borderWidth: 1,
   },
   fullWidth: { alignSelf: "stretch" },
   label: { fontSize: 14, fontFamily: fonts.semibold },
@@ -485,7 +491,7 @@ const styles = StyleSheet.create({
   skeleton: { backgroundColor: colors.surfaceTertiary, borderRadius: radius.sm },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.lg,

@@ -28,7 +28,7 @@ export default function TabsLayout() {
       initialRouteName="campaigns"
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.onSurface,
+        tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.onSurfaceTertiary,
         tabBarStyle: {
           position: "absolute",

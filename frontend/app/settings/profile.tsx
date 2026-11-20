@@ -1,10 +1,10 @@
 import React from "react";
-import { StyleSheet, Text, View, ScrollView } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { colors, spacing, font } from "@/src/theme";
-import { GlassHeader } from "@/src/components/Header";
-import { SettingsGroup, SettingsRow } from "@/src/components/settings";
+import { Ionicons } from "@expo/vector-icons";
+import { colors, spacing, radius, font, fonts } from "@/src/theme";
+import { Button } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { openWeb } from "@/src/lib/open-web";
 import { cache, cacheKeys } from "@/src/lib/cache";
@@ -30,7 +30,7 @@ export default function ProfileScreen() {
     if (v === null || v === undefined) return "—";
     if (typeof v === "string") return v.trim() || "—";
     if (typeof v === "number" || typeof v === "boolean") return String(v);
-    return "—"; // objects/arrays are never renderable as-is
+    return "—";
   };
 
   const formatAddress = (a?: AccountAddress | null): string => {
@@ -41,54 +41,148 @@ export default function ProfileScreen() {
     return parts.length ? parts.join(", ") : "—";
   };
 
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/settings");
+  };
+
   return (
     <View style={styles.container}>
-      <GlassHeader
-        title="Profile"
-        onBack={() => (router.canGoBack() ? router.back() : router.replace("/(tabs)/settings"))}
-      />
+      {/* Simple back navigation matching the prototype */}
+      <View style={[styles.backNav, { paddingTop: insets.top + spacing.sm }]}>
+        <Pressable
+          style={styles.backBtn}
+          onPress={goBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to Settings"
+          hitSlop={12}
+          testID="profile-back-btn"
+        >
+          <Ionicons name="chevron-back" size={18} color={colors.accent} />
+          <Text style={styles.backLabel}>Settings</Text>
+        </Pressable>
+      </View>
+
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + 64,
-          paddingHorizontal: spacing.lg,
           paddingBottom: insets.bottom + spacing.xxl,
         }}
         showsVerticalScrollIndicator={false}
       >
-        <SettingsGroup title="Profile" testID="profile-group">
-          <SettingsRow label="First name" value={dash(account?.firstName)} />
-          <SettingsRow label="Last name" value={dash(account?.lastName)} />
-          <SettingsRow label="Email" value={dash(account?.email)} />
-          <SettingsRow label="Company" value={dash(account?.companyName)} />
-          <SettingsRow label="Address" stacked value={formatAddress(account?.address as AccountAddress)} isLast />
-        </SettingsGroup>
+        {/* Page heading + note */}
+        <View style={styles.pageHead}>
+          <Text style={styles.pageTitle}>Profile</Text>
+          <Text style={styles.pageNote} testID="profile-note">
+            Your profile can only be edited on Brevo web.
+          </Text>
+        </View>
 
-        <SettingsGroup testID="profile-edit-web">
-          <SettingsRow
-            label="Edit on Brevo web"
-            externalLink
+        {/* Fields card */}
+        <View style={styles.card} testID="profile-group">
+          <ProfileField label="First name" value={dash(account?.firstName)} />
+          <ProfileField label="Last name" value={dash(account?.lastName)} />
+          <ProfileField label="Email" value={dash(account?.email)} />
+          <ProfileField label="Company" value={dash(account?.companyName)} />
+          <ProfileField label="Address" value={formatAddress(account?.address as AccountAddress)} isLast />
+        </View>
+
+        {/* Edit on Brevo web */}
+        <View style={styles.editWrap} testID="profile-edit-web">
+          <Button
+            variant="secondary"
+            title="Edit on Brevo web"
+            icon="open-outline"
             onPress={() => openWeb("https://app.brevo.com/profile/information")}
-            accessibilityLabel="Edit profile on Brevo web, opens in browser"
-            isLast
-            testID="profile-edit-web-row"
+            fullWidth
+            testID="profile-edit-web-button"
           />
-        </SettingsGroup>
-
-        <Text style={styles.note}>
-          Your profile can only be edited on the Brevo website.
-        </Text>
+        </View>
       </ScrollView>
     </View>
   );
 }
 
+// ---------- ProfileField: small muted label above a full-width wrapping value ----------
+function ProfileField({ label, value, isLast = false }: { label: string; value: string; isLast?: boolean }) {
+  return (
+    <View
+      style={[pfStyles.row, !isLast && pfStyles.sep]}
+      accessible
+      accessibilityLabel={`${label}, ${value}`}
+    >
+      <Text style={pfStyles.label}>{label}</Text>
+      <Text style={pfStyles.value}>{value}</Text>
+    </View>
+  );
+}
+
+const pfStyles = StyleSheet.create({
+  row: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  sep: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  // Small, muted label (e.g. "First name")
+  label: {
+    fontSize: font.sm,
+    fontFamily: fonts.semibold,
+    color: colors.onSurfaceTertiary,
+    marginBottom: 3,
+  },
+  // Full-width value that wraps for long text (e.g. addresses)
+  value: {
+    fontSize: font.base,
+    color: colors.onSurface,
+    lineHeight: 22,
+  },
+});
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  note: {
-    fontSize: font.sm,
-    color: colors.onSurfaceTertiary,
-    marginLeft: spacing.sm,
-    marginTop: spacing.xs,
-    lineHeight: 18,
+  backNav: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xs,
+    backgroundColor: colors.background,
+  },
+  backBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingVertical: spacing.xs,
+    alignSelf: "flex-start",
+  },
+  backLabel: {
+    fontSize: font.base,
+    fontFamily: fonts.semibold,
+    color: colors.accent,
+  },
+  pageHead: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+  pageTitle: {
+    fontSize: font.display,
+    fontFamily: fonts.bold,
+    color: colors.onSurface,
+    letterSpacing: -0.5,
+  },
+  pageNote: {
+    fontSize: font.base,
+    color: colors.onSurfaceSecondary,
+    marginTop: spacing.sm,
+    lineHeight: 20,
+  },
+  card: {
+    marginHorizontal: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+    marginBottom: spacing.xl,
+  },
+  editWrap: {
+    paddingHorizontal: spacing.lg,
   },
 });

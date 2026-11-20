@@ -5,7 +5,7 @@ import { useBottomTabBarHeight } from "expo-router/js-tabs";
 import Animated, { useSharedValue, useAnimatedScrollHandler } from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, spacing, radius, font, shadow } from "@/src/theme";
+import { colors, spacing, radius, font, shadow, fonts } from "@/src/theme";
 import { StickyHeader, LargeTitle } from "@/src/components/ScrollHeader";
 import { Avatar, StateView, Skeleton, EmptyState } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
@@ -289,42 +289,39 @@ export default function ContactsScreen() {
     const c = item.contact;
     const name = contactName(c);
     const a = c.attributes || {};
-    const phone = a.SMS || a.WHATSAPP || a.LANDLINE_NUMBER || "";
-    // First line: email, else name, else phone, else external/placeholder.
-    const primary = c.email || name || String(phone) || "No email";
-    // Only show the name on the second line when it isn't already the first.
-    const secondary = c.email ? name : primary === name ? "" : name;
+    const phone = String(a.SMS || a.WHATSAPP || a.LANDLINE_NUMBER || "");
+    // First line: name > email > phone
+    const firstLine = name || c.email || phone || "No contact";
+    // Second line: email only when it's not already the first line
+    const secondLine = c.email && c.email !== firstLine ? c.email : null;
+    // Channel tags
+    const hasTags = !!(c.email || a.SMS || a.WHATSAPP || a.LANDLINE_NUMBER || c.emailBlacklisted || (c as any).smsBlacklisted);
     return (
       <Pressable
         testID={`contact-row-${c.id}`}
         onPress={() => router.push(`/contact/${c.id}`)}
         style={({ pressed }) => [styles.row, { backgroundColor: pressed ? colors.surfaceSecondary : colors.surface }]}
       >
-        <Avatar label={name || c.email || String(phone) || "?"} colorId={c.id} />
+        <Avatar label={name || c.email || phone || "?"} colorId={c.id} />
         <View style={styles.rowText}>
-          <Text style={styles.rowPrimary} numberOfLines={1}>
-            {primary}
+          <Text style={styles.rowName} numberOfLines={1}>
+            {firstLine}
           </Text>
-          {secondary || c.emailBlacklisted ? (
-            <View style={styles.rowSecondLine}>
-              {secondary ? (
-                <Text style={styles.rowSecondary} numberOfLines={1}>
-                  {secondary}
-                </Text>
-              ) : null}
-              {c.emailBlacklisted ? (
-                <View style={styles.unsubBadge}>
-                  <Text style={styles.unsubBadgeText}>Unsubscribed</Text>
-                </View>
-              ) : null}
+          {secondLine ? (
+            <Text style={styles.rowEmail} numberOfLines={1}>
+              {secondLine}
+            </Text>
+          ) : null}
+          {hasTags ? (
+            <View style={styles.tags}>
+              {c.email ? <ChannelTag label="Email" /> : null}
+              {a.SMS ? <ChannelTag label="SMS" /> : null}
+              {a.WHATSAPP ? <ChannelTag label="WhatsApp" /> : null}
+              {a.LANDLINE_NUMBER ? <ChannelTag label="Landline" /> : null}
+              {c.emailBlacklisted ? <ChannelTag label="Email unsubscribed" variant="unsub" /> : null}
+              {(c as any).smsBlacklisted ? <ChannelTag label="SMS unsubscribed" variant="unsub" /> : null}
             </View>
           ) : null}
-        </View>
-        <View style={styles.channels}>
-          {c.email ? <Ionicons name="mail" size={14} color={colors.onSurfaceTertiary} /> : null}
-          {a.SMS ? <Ionicons name="chatbubble" size={14} color={colors.onSurfaceTertiary} /> : null}
-          {a.WHATSAPP ? <Ionicons name="logo-whatsapp" size={14} color={colors.onSurfaceTertiary} /> : null}
-          {a.LANDLINE_NUMBER ? <Ionicons name="call" size={14} color={colors.onSurfaceTertiary} /> : null}
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
       </Pressable>
@@ -447,6 +444,34 @@ export default function ContactsScreen() {
   );
 }
 
+// ---------- Small channel / unsub pill tag ----------
+function ChannelTag({ label, variant = "neutral" }: { label: string; variant?: "neutral" | "unsub" }) {
+  const isUnsub = variant === "unsub";
+  return (
+    <View style={[tagStyles.tag, isUnsub && tagStyles.unsubTag]}>
+      {isUnsub ? <View style={tagStyles.unsubDot} /> : null}
+      <Text style={[tagStyles.tagText, isUnsub && tagStyles.unsubText]}>{label}</Text>
+    </View>
+  );
+}
+const tagStyles = StyleSheet.create({
+  tag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  unsubTag: { borderColor: "rgba(255,58,81,0.3)", backgroundColor: colors.errorBg },
+  unsubDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.error },
+  tagText: { fontSize: 11, fontFamily: fonts.semibold, color: colors.onSurfaceSecondary },
+  unsubText: { color: colors.errorText },
+});
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   headerBlock: { paddingHorizontal: spacing.lg },
@@ -467,21 +492,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    minHeight: 64,
+    paddingVertical: 12,
+    minHeight: 72,
   },
   rowText: { flex: 1 },
-  rowPrimary: { fontSize: font.lg, fontWeight: "600", color: colors.onSurface },
-  rowSecondLine: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 2 },
-  rowSecondary: { fontSize: font.base, color: colors.onSurfaceSecondary, flexShrink: 1 },
-  unsubBadge: {
-    backgroundColor: colors.errorBg,
-    borderRadius: radius.sm,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-  },
-  unsubBadgeText: { fontSize: 11, fontWeight: "700", color: colors.errorText },
-  channels: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginRight: spacing.xs },
+  // Name — first line, slightly prominent
+  rowName: { fontSize: font.lg, fontFamily: fonts.semibold, color: colors.onSurface },
+  // Email — second line
+  rowEmail: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: 2 },
+  // Channel + unsub pill tags
+  tags: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider, marginLeft: 72 },
   skRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
   footer: { paddingVertical: spacing.lg, alignItems: "center" },
