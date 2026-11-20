@@ -1,11 +1,11 @@
 import React, { useCallback, useState } from "react";
-import { StyleSheet, Text, View, ScrollView, Modal, Pressable } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Modal, Pressable, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { StateView, Loader, StatusBadge, Button } from "@/src/components/common";
-import { ConfirmDialog } from "@/src/components/ConfirmDialog";
+import { ScheduleSheet } from "@/src/components/ScheduleSheet";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { useToast } from "@/src/context/ToastContext";
 import { brevo, Campaign, Readiness } from "@/src/lib/brevo";
@@ -13,48 +13,6 @@ import { cache, cacheKeys } from "@/src/lib/cache";
 import { useFocusRefetch } from "@/src/hooks/use-focus-refetch";
 import { nf, fmtDateTime } from "@/src/lib/format";
 import { openWeb, WEB_HOME_URL, webCampaignReportUrl, webCampaignEditUrl } from "@/src/lib/open-web";
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-// Device timezone offset in minutes (east of UTC positive).
-const tzOffsetMin = () => -new Date().getTimezoneOffset();
-
-// "Asia/Kolkata GMT +05:30" like Brevo web.
-function tzLabel() {
-  let name = "";
-  try {
-    name = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-  } catch {
-    name = "";
-  }
-  const off = tzOffsetMin();
-  const sign = off >= 0 ? "+" : "-";
-  const abs = Math.abs(off);
-  const gmt = `GMT ${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
-  return name ? `${name} ${gmt}` : gmt;
-}
-
-// Local Date -> ISO 8601 with the device's offset, e.g. 2026-11-09T11:00:00+05:30.
-function toOffsetISO(d: Date) {
-  const off = tzOffsetMin();
-  const sign = off >= 0 ? "+" : "-";
-  const abs = Math.abs(off);
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}:00${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
-  );
-}
-
-const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const dayLabel = (d: Date) => `${WEEKDAY[d.getDay()]}, ${d.getDate()} ${MONTH[d.getMonth()]} ${d.getFullYear()}`;
-
-const MISSING_LABEL: Record<string, string> = {
-  sender: "Sender",
-  recipients: "Recipients",
-  subject: "Subject",
-  design: "Design",
-};
 
 // Draft checklist steps, in display order, with the hint shown when missing.
 const STEPS: { key: string; label: string; hint: string }[] = [
@@ -107,7 +65,7 @@ function actionFor(status?: string): StatusAction | null {
     return {
       target: "queued",
       confirm: "Resume campaign",
-      cancel: "Cancel",
+      cancel: "Keep paused",
       question: "Resume this campaign?",
       body: "The campaign will be re-queued and may resume sending.",
     };
@@ -145,18 +103,10 @@ export default function CampaignDetail() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // --- Draft send/schedule (sheet is reworked in the next UI batch) ---
+  const { width } = useWindowDimensions();
+  const stackButtons = width < 400;
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [sendMode, setSendMode] = useState<"now" | "later">("now");
-  const [dayOffset, setDayOffset] = useState(0);
-  const [hour, setHour] = useState(() => Math.min(23, new Date().getHours() + 1));
-  const [minute, setMinute] = useState(0);
-  const [openPicker, setOpenPicker] = useState<"date" | "hour" | "minute" | null>(null);
-  const [confirmMode, setConfirmMode] = useState<null | "now" | "later">(null);
-  const [sending, setSending] = useState(false);
-  const sendingRef = React.useRef(false);
-  const [sheetError, setSheetError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -233,67 +183,6 @@ export default function CampaignDetail() {
   const unsupportedRecipients = missing.includes("unsupported_recipients");
   const draftReady = readiness ? readiness.ready : missing.length === 0;
 
-  // Selected schedule moment (local) + display strings.
-  const scheduledDate = (() => {
-    const base = new Date();
-    base.setDate(base.getDate() + dayOffset);
-    return new Date(base.getFullYear(), base.getMonth(), base.getDate(), hour, minute, 0, 0);
-  })();
-  const whenText = `${dayLabel(scheduledDate)}, ${pad(hour)}:${pad(minute)} ${tzLabel()}`;
-
-  // Recipient summary for the confirmation.
-  const lists = readiness?.recipients?.lists || [];
-  const segments = readiness?.recipients?.segments || [];
-  const recipientNames = [...lists.map((l) => l.name), ...segments.map((s) => s.name)].join(", ");
-  const recipientCount = lists.reduce((a, l) => a + (l.count || 0), 0);
-  const recipientLine =
-    recipientCount > 0
-      ? `${nf(recipientCount)} contacts in ${recipientNames}`
-      : recipientNames
-      ? `${recipientNames}`
-      : "your recipients";
-
-  const dateOptions = [...Array(60)].map((_, d) => {
-    const base = new Date();
-    base.setDate(base.getDate() + d);
-    return { offset: d, label: dayLabel(base) };
-  });
-
-  const errText = (e: any) => {
-    const st = e?.upstreamStatus || e?.status;
-    if (st === 402) return "You don't have enough email credits to send this campaign.";
-    if (st === 400 && Array.isArray(e?.detail?.missing)) {
-      return `Complete these steps on Brevo web first: ${e.detail.missing
-        .map((m: string) => MISSING_LABEL[m] || m)
-        .join(", ")}.`;
-    }
-    return e?.message || "Something went wrong. Please try again.";
-  };
-
-  const runSend = async () => {
-    if (sendingRef.current) return; // synchronous guard: one request per tap burst
-    sendingRef.current = true;
-    setSending(true);
-    setSheetError(null);
-    try {
-      if (confirmMode === "now") {
-        await brevo.sendCampaignNow(token, id);
-      } else {
-        await brevo.scheduleCampaign(token, id, toOffsetISO(scheduledDate));
-      }
-      setConfirmMode(null);
-      setScheduleOpen(false);
-      cache.del(cacheKeys.campaigns);
-      toast.show(confirmMode === "now" ? "Campaign sent" : `Campaign scheduled for ${whenText}`, "success");
-      await load(); // status flips to sent/queued; Suspend action reappears
-    } catch (e: any) {
-      setSheetError(errText(e));
-    } finally {
-      sendingRef.current = false;
-      setSending(false);
-    }
-  };
-
   const applyStatus = async () => {
     if (!action) return;
     setBusy(true);
@@ -355,7 +244,7 @@ export default function CampaignDetail() {
         title: "Schedule or send now",
         variant: "primary",
         icon: "calendar-outline",
-        onPress: () => toast.show("Coming next", "info"),
+        onPress: () => setScheduleOpen(true),
         testID: "campaign-schedule-button",
       };
     } else if (isDraft) {
@@ -401,7 +290,9 @@ export default function CampaignDetail() {
       <Text style={styles.section}>{draftReady ? "Checklist" : "Required steps"}</Text>
       <View style={styles.listCard} testID="campaign-checklist">
         {STEPS.map((s, i) => {
-          const todo = missing.includes(s.key);
+          const unsupported = s.key === "recipients" && unsupportedRecipients;
+          const todo = missing.includes(s.key) || unsupported;
+          const hint = unsupported ? "Individually added contacts can't be scheduled from the app" : s.hint;
           return (
             <View key={s.key} style={[styles.stepRow, i > 0 && styles.rowDivider]} testID={`step-${s.key}`}>
               <Ionicons
@@ -411,7 +302,7 @@ export default function CampaignDetail() {
               />
               <View style={styles.stepBody}>
                 <Text style={styles.stepLabel}>{s.label}</Text>
-                {todo ? <Text style={styles.stepHint}>{s.hint}</Text> : null}
+                {todo ? <Text style={styles.stepHint}>{hint}</Text> : null}
               </View>
               {todo ? (
                 <View style={styles.todoTag} testID={`step-${s.key}-todo`}>
@@ -444,7 +335,7 @@ export default function CampaignDetail() {
       <View style={styles.grid}>
         <CompactStat label="Delivered" value={nf(g.delivered)} sub={`${rateLabel(deliveryRate)} delivery rate`} rate={deliveryRate} barColor={colors.success} testID="kpi-delivered" />
         <CompactStat label="Opens" value={nf(g.uniqueViews)} sub={`${rateLabel(openRate)} open rate`} rate={openRate} barColor={colors.success} testID="kpi-opens" />
-        <CompactStat label="Clicks" value={nf(g.uniqueClicks)} sub={`${rateLabel(clickRate)} click-through rate`} rate={clickRate} barColor={colors.success} testID="kpi-clicks" />
+        <CompactStat label="Clicks" value={nf(g.uniqueClicks)} sub={`${rateLabel(clickRate)} click rate`} rate={clickRate} barColor={colors.success} testID="kpi-clicks" />
         <CompactStat label="Unsubscribes" value={nf(g.unsubscriptions)} sub={`${rateLabel(unsubRate)} unsubscribe rate`} rate={unsubRate} barColor={colors.negativePress} testID="kpi-unsubscribes" />
         {hasConversions ? (
           <CompactStat label="Conversions" value={nf(convRaw)} sub={`${rateLabel(convRate)} conversion rate`} rate={convRate} barColor={colors.success} testID="kpi-conversions" />
@@ -568,163 +459,21 @@ export default function CampaignDetail() {
         </>
       )}
 
-      {/* Schedule sheet (drafts) */}
-      <Modal visible={scheduleOpen} transparent animationType="slide" onRequestClose={() => setScheduleOpen(false)}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => setScheduleOpen(false)}>
-          <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]} onPress={() => {}}>
-            <View style={styles.sheetHead}>
-              <Text style={styles.sheetTitle}>Schedule</Text>
-              <Pressable onPress={() => setScheduleOpen(false)} hitSlop={12} testID="schedule-close">
-                <Ionicons name="close" size={22} color={colors.onSurface} />
-              </Pressable>
-            </View>
-            <ScrollView style={{ maxHeight: 440 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              <Text style={styles.sheetQuestion}>When would you like to send the campaign?</Text>
-
-              <Pressable style={styles.radioRow} onPress={() => setSendMode("now")} testID="schedule-mode-now">
-                <Ionicons
-                  name={sendMode === "now" ? "radio-button-on" : "radio-button-off"}
-                  size={20}
-                  color={sendMode === "now" ? colors.brandPrimary : colors.onSurfaceTertiary}
-                />
-                <Text style={styles.radioLabel}>Send now</Text>
-              </Pressable>
-
-              <Pressable style={styles.radioRow} onPress={() => setSendMode("later")} testID="schedule-mode-later">
-                <Ionicons
-                  name={sendMode === "later" ? "radio-button-on" : "radio-button-off"}
-                  size={20}
-                  color={sendMode === "later" ? colors.brandPrimary : colors.onSurfaceTertiary}
-                />
-                <Text style={styles.radioLabel}>Schedule for later</Text>
-              </Pressable>
-
-              {sendMode === "later" ? (
-                <View style={styles.laterWrap}>
-                  <Text style={styles.fieldLabel}>Date</Text>
-                  <Pressable
-                    style={styles.select}
-                    onPress={() => setOpenPicker(openPicker === "date" ? null : "date")}
-                    testID="schedule-date"
-                  >
-                    <Text style={styles.selectText}>{dayLabel(scheduledDate)}</Text>
-                    <Ionicons name="chevron-down" size={18} color={colors.onSurface} />
-                  </Pressable>
-                  {openPicker === "date" ? (
-                    <ScrollView style={styles.pickerList} nestedScrollEnabled>
-                      {dateOptions.map((o) => (
-                        <Pressable
-                          key={o.offset}
-                          style={styles.pickerItem}
-                          onPress={() => {
-                            setDayOffset(o.offset);
-                            setOpenPicker(null);
-                          }}
-                        >
-                          <Text style={styles.pickerItemText}>{o.label}</Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  ) : null}
-
-                  <Text style={styles.fieldLabel}>Time</Text>
-                  <View style={styles.timeRow}>
-                    <Pressable
-                      style={[styles.select, styles.timeSelect]}
-                      onPress={() => setOpenPicker(openPicker === "hour" ? null : "hour")}
-                      testID="schedule-hour"
-                    >
-                      <Text style={styles.selectText}>{pad(hour)}</Text>
-                      <Ionicons name="chevron-down" size={18} color={colors.onSurface} />
-                    </Pressable>
-                    <Pressable
-                      style={[styles.select, styles.timeSelect]}
-                      onPress={() => setOpenPicker(openPicker === "minute" ? null : "minute")}
-                      testID="schedule-minute"
-                    >
-                      <Text style={styles.selectText}>{pad(minute)}</Text>
-                      <Ionicons name="chevron-down" size={18} color={colors.onSurface} />
-                    </Pressable>
-                  </View>
-                  {openPicker === "hour" ? (
-                    <ScrollView style={styles.pickerList} nestedScrollEnabled>
-                      {[...Array(24)].map((_, h) => (
-                        <Pressable
-                          key={h}
-                          style={styles.pickerItem}
-                          onPress={() => {
-                            setHour(h);
-                            setOpenPicker(null);
-                          }}
-                        >
-                          <Text style={styles.pickerItemText}>{pad(h)}</Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  ) : null}
-                  {openPicker === "minute" ? (
-                    <ScrollView style={styles.pickerList} nestedScrollEnabled>
-                      {[...Array(12)].map((_, i) => (
-                        <Pressable
-                          key={i}
-                          style={styles.pickerItem}
-                          onPress={() => {
-                            setMinute(i * 5);
-                            setOpenPicker(null);
-                          }}
-                        >
-                          <Text style={styles.pickerItemText}>{pad(i * 5)}</Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  ) : null}
-
-                  <Text style={styles.tzText}>{tzLabel()}</Text>
-                </View>
-              ) : null}
-            </ScrollView>
-
-            <View style={styles.sheetFooter}>
-              <Button
-                testID="schedule-submit"
-                variant="primary"
-                title={sendMode === "now" ? "Send now" : "Schedule"}
-                onPress={() => {
-                  setSheetError(null);
-                  setOpenPicker(null);
-                  // iOS can't show two sibling Modals at once — close the sheet
-                  // first, keeping the chosen date/time, then open the confirm.
-                  setScheduleOpen(false);
-                  setConfirmMode(sendMode === "now" ? "now" : "later");
-                }}
-              />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Send/schedule confirmation */}
-      <ConfirmDialog
-        visible={confirmMode !== null}
-        icon={confirmMode === "now" ? "send-outline" : "calendar-outline"}
-        title={confirmMode === "now" ? "Send this campaign now?" : "Schedule this campaign?"}
-        body={
-          confirmMode === "now"
-            ? `It will go to ${recipientLine}. This can't be undone.`
-            : `It will go to ${recipientLine} on ${whenText}.`
-        }
-        confirmLabel={confirmMode === "now" ? "Send campaign" : "Schedule campaign"}
-        cancelLabel="Keep as draft"
-        busy={sending}
-        errorText={sheetError || undefined}
-        onConfirm={runSend}
-        onCancel={() => {
-          if (sending) return;
-          setConfirmMode(null);
-          setSheetError(null);
-        }}
-        testID="campaign-send-confirm"
-      />
+      {campaign && isDraft ? (
+        <ScheduleSheet
+          visible={scheduleOpen}
+          campaign={campaign}
+          readiness={readiness}
+          token={token as string}
+          onClose={() => setScheduleOpen(false)}
+          onDone={async (msg) => {
+            setScheduleOpen(false);
+            cache.del(cacheKeys.campaigns);
+            toast.show(msg, "success");
+            await load(); // status flips to Scheduled/Sent; Suspend sending appears
+          }}
+        />
+      ) : null}
 
       {/* Suspend / resume confirmation */}
       <Modal visible={confirmOpen} transparent animationType="fade" onRequestClose={() => setConfirmOpen(false)}>
@@ -732,8 +481,8 @@ export default function CampaignDetail() {
           <View style={styles.modalCard} testID="campaign-confirm-modal">
             <Text style={styles.modalTitle}>{action?.question}</Text>
             <Text style={styles.modalBody}>{action?.body}</Text>
-            <View style={styles.modalActions}>
-              <View style={styles.modalBtnWrap}>
+            <View style={[styles.modalActions, stackButtons && styles.modalActionsStacked]}>
+              <View style={stackButtons ? undefined : styles.modalBtnWrap}>
                 <Button
                   variant="secondary"
                   title={action?.cancel || "Cancel"}
@@ -743,7 +492,7 @@ export default function CampaignDetail() {
                   testID="campaign-confirm-cancel"
                 />
               </View>
-              <View style={styles.modalBtnWrap}>
+              <View style={stackButtons ? undefined : styles.modalBtnWrap}>
                 <Button
                   variant={destructive ? "destructive" : "primary"}
                   title={action?.confirm || "Confirm"}
@@ -833,7 +582,7 @@ function CompactStat({
       <Text style={styles.statValue} numberOfLines={1}>
         {value}
       </Text>
-      <Text style={styles.statSub} numberOfLines={1}>
+      <Text style={styles.statSub} numberOfLines={2}>
         {sub}
       </Text>
       <View style={styles.barTrack}>
@@ -927,49 +676,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
   },
 
-  // Schedule sheet
-  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
-  sheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-  },
-  sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sheetTitle: { fontSize: font.xl, fontFamily: fonts.bold, color: colors.onSurface, letterSpacing: -0.3 },
-  sheetQuestion: { fontSize: font.lg, fontFamily: fonts.semibold, color: colors.onSurface, marginTop: spacing.md, marginBottom: spacing.sm },
-  radioRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
-  radioLabel: { fontSize: font.lg, color: colors.onSurface },
-  laterWrap: { paddingLeft: 28, paddingTop: spacing.xs },
-  fieldLabel: { fontSize: font.base, fontFamily: fonts.semibold, color: colors.onSurface, marginTop: spacing.md, marginBottom: spacing.xs },
-  select: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    height: 48,
-    backgroundColor: colors.surface,
-  },
-  selectText: { fontSize: font.lg, color: colors.onSurface },
-  timeRow: { flexDirection: "row", gap: spacing.md },
-  timeSelect: { flex: 1 },
-  pickerList: {
-    maxHeight: 180,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    marginTop: spacing.xs,
-    backgroundColor: colors.surface,
-  },
-  pickerItem: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  pickerItemText: { fontSize: font.lg, color: colors.onSurface },
-  tzText: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.sm },
-  sheetFooter: { marginTop: spacing.lg },
-
   // Compact 2-column stat grid
   grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
   stat: {
@@ -1021,4 +727,6 @@ const styles = StyleSheet.create({
   modalBody: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.sm, lineHeight: 20 },
   modalActions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xl },
   modalBtnWrap: { flex: 1 },
+  // Narrow screens: primary on top (column-reverse keeps the cancel button second in markup order).
+  modalActionsStacked: { flexDirection: "column-reverse" },
 });

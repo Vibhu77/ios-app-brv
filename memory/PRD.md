@@ -77,3 +77,9 @@ Follow-up: replace API-key auth with **Brevo OAuth 2.0** login (mandatory login 
 - Drafts: readiness checklist (Sender/Recipients/Subject/Design), ready vs not-ready banners & buttons; "Schedule or send now" shows "Coming next" toast (sheet in batch 3)
 - Fixed: deep link/reload spinner on campaign & contact detail; toasts no longer block taps
 - Demo fixture #243 (2.04% delivery) added
+
+## UI Refresh Batch 3/4 — Send now / Schedule (DONE in demo; live acceptance pending by user)
+- New ScheduleSheet (src/components/ScheduleSheet.tsx): segmented Send now | Schedule, custom date/time wheels (60 days, 5-min steps), phone time zone note, inline errors above footer, inline ConfirmDialog (no stacked modals), double-tap guard
+- Backend readiness/send-now/schedule endpoints already existed (server.py ~501-665); schedule re-sends listIds/segmentIds + existing exclusions
+- Batch 2 leftovers fixed: 2-line tile labels ("click rate"), stacked confirm buttons <400px, unsupported recipients hint, "Keep paused"
+- Fixes: DST-safe offset for picked date, API error detail passed to app

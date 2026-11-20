@@ -68,6 +68,7 @@ async function req(path: string, token: string, opts: RequestInit = {}) {
     err.field = detail && typeof detail === "object" ? detail.field : undefined;
     err.requestId = requestId;
     err.upstreamBody = detail && typeof detail === "object" ? detail.upstream_body : undefined;
+    err.detail = detail && typeof detail === "object" ? detail : undefined;
     throw err;
   }
   diagnostics.recordSuccess();

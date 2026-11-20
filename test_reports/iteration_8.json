@@ -1,0 +1,42 @@
+{
+  "summary": "Batch 3/4 Send/Schedule sheet, frontend only, DEMO mode, 375x667 (plus a 430px check of the dialog layout). Deep links now work (/campaign/<id> loads after demo login). PASS: sheet title, name, subject, segmented Send now|Schedule; Date/Time rows open wheels as an accordion (date wheel has 60 items, today first; hours 00-23; minutes in 5-min steps); tapping a wheel item and mouse-wheel scrolling both update the value; main button label 'Schedule for 22 Nov, 10:30' follows the pick; tz note 'Times are in your phone's time zone (UTC GMT+00:00).'; schedule confirm 'It will go to 1 contact in Demo list (just me) on Sun, 22 Nov 2026, 10:30 (UTC GMT+00:00).'; 'Keep as draft' closes only the confirm; Schedule campaign -> toast 'Campaign scheduled for 22 Nov, 10:30', status Scheduled, 'Suspend sending' bar; suspend works; Resume confirm shows 'Keep paused'. Send now on #26: confirm text right, 3 synchronous clicks -> spinner, confirm/cancel/submit aria-disabled, exactly 1 'Campaign sent' toast, status Sent, 'View full report on Brevo web'. Too-soon time (today, earlier hour) -> 'Pick a time at least 5 minutes from now.' and no confirm. Close (X) and backdrop tap close the sheet; reopening resets to Send now. Leftovers 1-4 PASS (sub-labels numberOfLines=2 and 'click rate'; suspend/resume buttons stacked with primary on top at 375 and side by side with cancel on the left at 430; #16 Recipients 'To do' with the right hint; 'Keep paused'). Old 'Coming next' code is gone. 1 UX bug: the inline schedule error renders below the fold, hidden behind the sheet footer, so to the user the button seems to do nothing. Code review found 1 timezone (DST) bug and 2 minor issues. No deprecated Expo packages detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/brevo/campaigns/{id}/send-now | /schedule (code review only, NOT executed: real emails)", "issue": "When the campaign isn't ready, the backend returns 400 with detail.missing. But req() in src/lib/brevo.ts:64-71 never sets err.detail, so ScheduleSheet errText() (ScheduleSheet.tsx:125) can't build 'Complete these steps on Brevo web first: ...'. In real mode the user sees the raw message 'Campaign is not ready to send' instead. Fix: set err.detail = detail in req()."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ScheduleSheet inline error", "issue": "At 375x667 in Schedule mode with the time wheel open (the default), the schedule-error box renders at y=639-683. That is inside the body ScrollView but below the visible area, behind the footer (submit at y=607). elementFromPoint does not hit it and it isn't on screen, so tapping 'Schedule for ...' with a too-soon time appears to do nothing. The same applies to 402/API errors. Fix: render the error above the footer (outside the ScrollView), or scrollToEnd / collapse the wheel when an error is set.", "testID": "schedule-error", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Campaign detail after schedule/send", "issues": ["The success toast ('Campaign scheduled for ...' / 'Campaign sent') sits on top of the sticky bottom bar and hides 'Suspend sending' for about 3s. This carries over from iteration_7 and is still present."]},
+      {"screen": "ScheduleSheet (Schedule mode, 375x667)", "issues": ["With a wheel open, the timezone note sits below the fold and needs scrolling inside the sheet. Consider collapsing the wheel after a pick, or making the wheel shorter."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [".screenshots/s1-s7, t1-t4, u1-u3, v1 (browser automation)"],
+  "action_items": [
+    "HIGH: Make the schedule-error visible. Move the errorBox out of the body ScrollView and put it just above the footer, or auto-scroll to it.",
+    "MEDIUM: DST bug. toOffsetISO() and zoneLabel()/gmtLabel() use the offset of the current date (new Date().getTimezoneOffset()), not the offset of the picked date. A schedule that crosses a DST change within the 60-day window gets sent 1 hour off, and the confirm text shows the wrong GMT offset. Use -when.getTimezoneOffset() (ScheduleSheet.tsx:25-48, 108, 270).",
+    "MINOR: DATES (ScheduleSheet.tsx:68) is computed once at module load. If the app stays open past midnight, the wheel labels go out of step with dayFromToday(offset). Compute the dates inside the component, or when the sheet opens.",
+    "MINOR: Set err.detail in req() (src/lib/brevo.ts) so the 400 'missing' message works in real mode.",
+    "MINOR: Keep the toast from covering the sticky bottom bar (carried over from iteration_7)."
+  ],
+  "critical_code_review_comments": [
+    "Double-send guard: sendingRef is a synchronous ref plus a disabled/loading Button, which is correct. Verified: 3 rapid clicks gave 1 toast.",
+    "runSend re-checks the 5-minute lead before sending, and the backend also refuses times <= now+5min. Good.",
+    "ConfirmDialog is rendered inline inside the sheet Modal, which avoids the iOS problem with stacked Modals. Good.",
+    "The 402 path relies on the backend passing the Brevo status through (HTTPException status_code=resp.status_code) and errText checking upstreamStatus||status. This looks correct, but it can't be exercised in demo mode.",
+    "campaign/[id].tsx is 732 lines, over the 700-line guideline. Consider extracting Banner, CompactStat and the confirm modal."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not tested, real-email endpoints)", "frontend": "95% (all requested flows pass; error visibility bug)"},
+  "seed_data_creation": "None. Demo in-memory state only (it resets on reload).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "DEMO mode: tap login-demo-button on /login, then page.goto /campaign/<id> works (each goto reloads, which resets in-memory demo state). Ready drafts: 2, 26, 30. Not ready: 7 (no subject), 16 (unsupported_recipients). #3 queued, #5 suspended, #1/#243 sent, #12 sent with zero delivered. The browser timezone is UTC. Wait about 1s after opening the sheet (slide animation) before clicking inside it, or you get 'Element is outside of the viewport'. Use ':visible' on detail-screen testIDs.",
+  "rca_of_issue": "schedule-error is a child of the sheet's body ScrollView, after the card that holds the 220px wheel. At 667px height the body content is taller than the space left by the 92% maxHeight sheet minus the footer, so the error is appended off-screen and nothing scrolls to it."
+}

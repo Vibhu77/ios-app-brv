@@ -19,6 +19,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   testID,
+  inline,
 }: {
   visible: boolean;
   icon?: keyof typeof Ionicons.glyphMap;
@@ -32,10 +33,12 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
   testID?: string;
+  // Render as an overlay inside an already-open Modal (iOS can't stack Modals).
+  inline?: boolean;
 }) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.backdrop}>
+  if (inline && !visible) return null;
+  const content = (
+      <View style={[styles.backdrop, inline && StyleSheet.absoluteFill]}>
         <View style={styles.card} testID={testID}>
           {icon ? (
             <View style={[styles.iconCircle, destructive && styles.iconCircleDestructive]}>
@@ -69,6 +72,11 @@ export function ConfirmDialog({
           </View>
         </View>
       </View>
+  );
+  if (inline) return content;
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      {content}
     </Modal>
   );
 }
