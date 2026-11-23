@@ -114,28 +114,28 @@ export type StatusVisual = { bg: string; dot: string; border: string; label: str
 export function statusVisual(status?: string): StatusVisual {
   switch (normStatus(status)) {
     case "sent":
-      return { bg: colors.successBg, dot: "#0B9A6F", border: "rgba(11,154,111,0.3)", label: "Sent" };
+      return { bg: colors.successBg, dot: colors.success, border: colors.successBorder, label: "Sent" };
     case "queued":
     case "scheduled":
-      return { bg: colors.infoBg, dot: "#6358DE", border: "rgba(99,88,222,0.3)", label: "Scheduled" };
+      return { bg: colors.infoBg, dot: colors.accent, border: colors.infoBorder, label: "Scheduled" };
     case "inprocess":
     case "running":
-      return { bg: colors.warningBg, dot: "#FF6E3D", border: "rgba(255,110,61,0.3)", label: "Running" };
+      return { bg: colors.warningBg, dot: colors.warning, border: colors.warningBorder, label: "Running" };
     case "suspended":
-      return { bg: colors.errorBg, dot: "#FF3A51", border: "rgba(255,58,81,0.3)", label: "Suspended" };
+      return { bg: colors.errorBg, dot: colors.error, border: colors.errorBorder, label: "Suspended" };
     case "rejected":
-      return { bg: colors.errorBg, dot: "#FF3A51", border: "rgba(255,58,81,0.3)", label: "Rejected" };
+      return { bg: colors.errorBg, dot: colors.error, border: colors.errorBorder, label: "Rejected" };
     case "cancelled":
     case "cancelling":
     case "canceled":
-      return { bg: colors.errorBg, dot: "#FF3A51", border: "rgba(255,58,81,0.3)", label: "Canceled" };
+      return { bg: colors.errorBg, dot: colors.error, border: colors.errorBorder, label: "Canceled" };
     case "archive":
     case "archived":
       return { bg: colors.surfaceSecondary, dot: colors.onSurfaceTertiary, border: colors.border, label: "Archived" };
     case "draft":
       return { bg: colors.surfaceSecondary, dot: colors.onSurfaceTertiary, border: colors.border, label: "Draft" };
     case "inreview":
-      return { bg: colors.infoBg, dot: "#6358DE", border: "rgba(99,88,222,0.3)", label: "In review" };
+      return { bg: colors.infoBg, dot: colors.accent, border: colors.infoBorder, label: "In review" };
     default:
       return { bg: colors.surfaceSecondary, dot: colors.onSurfaceTertiary, border: colors.border, label: titleCase(status || "draft") };
   }
@@ -268,7 +268,7 @@ export function StatRow({
 }
 
 // ---------- Naos NaosButton (single reusable button) ----------
-type ButtonVariant = "primary" | "destructive" | "secondary" | "destructiveGhost";
+type ButtonVariant = "primary" | "destructive" | "secondary" | "destructiveGhost" | "destructiveOutline";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, { bg: string; border: string; borderWidth: number; fg: string }> = {
   primary: { bg: colors.brandPrimary, border: colors.brandPrimary, borderWidth: 1, fg: "#FFFFFF" },
@@ -277,6 +277,7 @@ const BUTTON_VARIANTS: Record<ButtonVariant, { bg: string; border: string; borde
   secondary: { bg: colors.surface, border: "#D0D0D0", borderWidth: 2, fg: colors.onSurface },
   // Secondary chrome with negative-red ink (Naos #CF1A3B) — used for Delete.
   destructiveGhost: { bg: colors.surfaceSecondary, border: colors.border, borderWidth: 1, fg: colors.errorText },
+  destructiveOutline: { bg: colors.surface, border: colors.errorBorder, borderWidth: 1, fg: colors.errorText },
 };
 
 export function Button({

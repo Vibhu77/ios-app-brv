@@ -45,6 +45,11 @@ export const colors = {
   infoText: "#463E9B",
   warningBg: "#FFF4F0",
   warningText: "#A24428",
+  // Soft borders for tinted pills (30% of the base tone)
+  successBorder: "rgba(11,154,111,0.3)",
+  errorBorder: "rgba(255,58,81,0.3)",
+  infoBorder: "rgba(99,88,222,0.3)",
+  warningBorder: "rgba(255,110,61,0.3)",
 
   // Lines
   border: "#E3E3E3",

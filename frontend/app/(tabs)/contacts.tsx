@@ -295,7 +295,7 @@ export default function ContactsScreen() {
     // Second line: email only when it's not already the first line
     const secondLine = c.email && c.email !== firstLine ? c.email : null;
     // Channel tags
-    const hasTags = !!(c.email || a.SMS || a.WHATSAPP || a.LANDLINE_NUMBER || c.emailBlacklisted || (c as any).smsBlacklisted);
+    const hasTags = !!(c.email || a.SMS || a.WHATSAPP || a.LANDLINE_NUMBER || c.emailBlacklisted || c.smsBlacklisted);
     return (
       <Pressable
         testID={`contact-row-${c.id}`}
@@ -319,7 +319,7 @@ export default function ContactsScreen() {
               {a.WHATSAPP ? <ChannelTag label="WhatsApp" /> : null}
               {a.LANDLINE_NUMBER ? <ChannelTag label="Landline" /> : null}
               {c.emailBlacklisted ? <ChannelTag label="Email unsubscribed" variant="unsub" /> : null}
-              {(c as any).smsBlacklisted ? <ChannelTag label="SMS unsubscribed" variant="unsub" /> : null}
+              {c.smsBlacklisted ? <ChannelTag label="SMS unsubscribed" variant="unsub" /> : null}
             </View>
           ) : null}
         </View>
@@ -466,7 +466,7 @@ const tagStyles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surfaceSecondary,
   },
-  unsubTag: { borderColor: "rgba(255,58,81,0.3)", backgroundColor: colors.errorBg },
+  unsubTag: { borderColor: colors.errorBorder, backgroundColor: colors.errorBg },
   unsubDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.error },
   tagText: { fontSize: 11, fontFamily: fonts.semibold, color: colors.onSurfaceSecondary },
   unsubText: { color: colors.errorText },

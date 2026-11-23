@@ -80,7 +80,7 @@ export type Account = {
   firstName?: string;
   lastName?: string;
   companyName?: string;
-  address?: string;
+  address?: { street?: string; zipCode?: string; city?: string; country?: string } | string;
   plan?: { type?: string; creditsType?: string; credits?: number; startDate?: string; endDate?: string };
   planName?: string;
   planVerticals?: {

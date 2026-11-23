@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { StyleSheet, Text, View, ScrollView } from "react-native";
+import { StyleSheet, Text, View, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
-import { GlassHeader } from "@/src/components/Header";
-import { Avatar, StateView, Loader, Card, Button } from "@/src/components/common";
+import { Avatar, StateView, Loader, Button } from "@/src/components/common";
 import { ConfirmDialog } from "@/src/components/ConfirmDialog";
 import { useToast } from "@/src/context/ToastContext";
 import { useBrevo } from "@/src/context/BrevoContext";
@@ -176,132 +175,152 @@ export default function ContactDetail() {
   const name = contactName(contact);
   const attrs = contact?.attributes || {};
   const attrKeys = Object.keys(attrs).filter((k) => attrs[k] !== "" && attrs[k] != null);
+  const title = name || contact?.email || attrs.SMS || attrs.WHATSAPP || attrs.LANDLINE_NUMBER || "Contact";
+  const channels = [
+    contact?.email ? "Email" : null,
+    attrs.SMS ? "SMS" : null,
+    attrs.WHATSAPP ? "WhatsApp" : null,
+    attrs.LANDLINE_NUMBER ? "Landline" : null,
+  ].filter(Boolean) as string[];
+  const received = count(stats?.messagesSent);
+  const opened = count(stats?.opened);
+  const clicked = count(stats?.clicked);
+  const noActivity = received + opened + clicked === 0;
+
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)/contacts");
+  };
 
   return (
-    <View style={styles.container}>
-      <GlassHeader
-        title={name || "Contact"}
-        onBack={() => {
-          if (router.canGoBack()) {
-            router.back();
-          } else {
-            router.replace("/(tabs)/contacts");
-          }
-        }}
-      />
+    <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
+      <View style={styles.topBar}>
+        <Pressable onPress={goBack} hitSlop={12} style={styles.backLink} testID="header-back-button">
+          <Ionicons name="chevron-back" size={22} color={colors.accent} />
+          <Text style={styles.linkText}>Contacts</Text>
+        </Pressable>
+        {contact ? (
+          <Pressable
+            onPress={() => router.push({ pathname: "/contact/form", params: { id: String(contact.id) } })}
+            hitSlop={12}
+            style={styles.editBtn}
+            testID="edit-contact-button"
+          >
+            <Text style={[styles.linkText, { fontFamily: fonts.semibold }]}>Edit</Text>
+          </Pressable>
+        ) : null}
+      </View>
       {loading ? (
         <Loader />
       ) : error ? (
-        <View style={{ flex: 1, paddingTop: insets.top + 52 }}>
-          <StateView
-            icon="cloud-offline-outline"
-            title="Couldn't load contact"
-            message={error}
-            actionLabel="Retry"
-            onAction={load}
-            testID="contact-detail-error"
-          />
-        </View>
+        <StateView
+          icon="cloud-offline-outline"
+          title="Couldn't load contact"
+          message={error}
+          actionLabel="Retry"
+          onAction={load}
+          testID="contact-detail-error"
+        />
       ) : (
         <>
           <ScrollView
             testID="contact-detail-scroll"
-            contentContainerStyle={{
-              paddingTop: insets.top + 64,
-              paddingHorizontal: spacing.lg,
-              paddingBottom: insets.bottom + 120,
-            }}
+            contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: insets.bottom + spacing.xl }}
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.profile}>
-              <Avatar label={name || contact?.email || "?"} size={72} />
-              <Text style={styles.email} numberOfLines={1}>
-                {contact?.email}
+              <Avatar label={title} size={80} colorId={contact?.id} />
+              <Text style={styles.title} testID="contact-title">
+                {title}
               </Text>
-              {name ? <Text style={styles.name}>{name}</Text> : null}
+              {name && contact?.email ? <Text style={styles.subtitle}>{contact.email}</Text> : null}
               <View style={styles.badges}>
-                {contact?.emailBlacklisted ? (
-                  <Tag label="Email blacklisted" tone="error" />
-                ) : (
-                  <Tag label="Subscribed" tone="success" />
-                )}
-                {contact?.smsBlacklisted ? <Tag label="SMS blocked" tone="warning" /> : null}
+                {contact?.emailBlacklisted ? <Tag label="Email unsubscribed" tone="error" /> : null}
+                {contact?.smsBlacklisted ? <Tag label="SMS unsubscribed" tone="error" /> : null}
+                {!contact?.emailBlacklisted && !contact?.smsBlacklisted ? <Tag label="Subscribed" tone="success" /> : null}
               </View>
             </View>
 
-            {/* Activity */}
-            <Text style={styles.section}>Activity (last 90 days)</Text>
-            <View style={styles.activityRow}>
-              <ActivityCard label="Received" value={nf(count(stats?.messagesSent))} />
-              <ActivityCard label="Opened" value={nf(count(stats?.opened))} />
-              <ActivityCard label="Clicked" value={nf(count(stats?.clicked))} />
+            {/* Activity (contact stats default to the last 90 days) */}
+            <Text style={styles.section}>
+              Activity <Text style={styles.sectionMuted}>· last 90 days</Text>
+            </Text>
+            <View style={styles.activityCard} testID="contact-activity">
+              <ActivityCell label="Received" value={nf(received)} testID="activity-received" />
+              <View style={styles.vDivider} />
+              <ActivityCell label="Opened" value={nf(opened)} testID="activity-opened" />
+              <View style={styles.vDivider} />
+              <ActivityCell label="Clicked" value={nf(clicked)} testID="activity-clicked" />
             </View>
+            {noActivity ? (
+              <Text style={styles.emptyHistory} testID="activity-empty">
+                No activity yet. It appears here after this contact receives a campaign.
+              </Text>
+            ) : null}
 
-            {/* Recent history timeline */}
-            <Text style={styles.section}>Recent history</Text>
-            {events.length === 0 ? (
-              <Text style={styles.emptyHistory}>No recent activity yet.</Text>
-            ) : (
-              <View style={styles.timeline}>
-                {events.map((e, i) => (
-                  <View key={`${e.type}-${i}`} style={styles.tlRow}>
-                    <View style={styles.tlGutter}>
-                      <View style={[styles.tlDot, { backgroundColor: e.color }]} />
-                      {i < events.length - 1 ? <View style={styles.tlLine} /> : null}
+            {/* Per-campaign timeline */}
+            {events.length > 0 ? (
+              <>
+                <Text style={styles.section}>Recent history</Text>
+                <View style={styles.timeline}>
+                  {events.map((e, i) => (
+                    <View key={`${e.type}-${i}`} style={styles.tlRow}>
+                      <View style={styles.tlGutter}>
+                        <View style={[styles.tlDot, { backgroundColor: e.color }]} />
+                        {i < events.length - 1 ? <View style={styles.tlLine} /> : null}
+                      </View>
+                      <View style={styles.tlBody}>
+                        <Text style={styles.tlLabel} numberOfLines={2}>
+                          <Text style={styles.tlEvent}>{e.label}</Text>
+                          {"  ·  "}
+                          {campaignLabel(e.campaignId)}
+                        </Text>
+                        <Text style={styles.tlDate}>{relTime(e.eventTime)}</Text>
+                      </View>
                     </View>
-                    <View style={styles.tlBody}>
-                      <Text style={styles.tlLabel} numberOfLines={2}>
-                        <Text style={styles.tlEvent}>{e.label}</Text>
-                        {"  ·  "}
-                        {campaignLabel(e.campaignId)}
-                      </Text>
-                      <Text style={styles.tlDate}>{relTime(e.eventTime)}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
+                  ))}
+                </View>
+              </>
+            ) : null}
 
             {/* Contact info */}
             <Text style={styles.section}>Contact info</Text>
-            <Card>
-              <InfoRow label="Email" value={contact?.email || "—"} />
-              <Divider />
-              <InfoRow label="Contact ID" value={String(contact?.id ?? "—")} />
-              <Divider />
-              <InfoRow label="Created" value={fmtDate(contact?.createdAt)} />
-              <Divider />
-              <InfoRow label="Modified" value={fmtDate(contact?.modifiedAt)} />
-            </Card>
+            <View style={styles.listCard} testID="contact-info">
+              <InfoField label="Email" value={contact?.email || "—"} />
+              <View style={[styles.field, styles.rowDivider]}>
+                <Text style={styles.fieldLabel}>Channels</Text>
+                {channels.length ? (
+                  <View style={styles.chanRow}>
+                    {channels.map((c) => (
+                      <View key={c} style={styles.chanTag}>
+                        <Text style={styles.chanText}>{c}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.fieldValue}>—</Text>
+                )}
+              </View>
+              <InfoField label="Contact ID" value={String(contact?.id ?? "—")} divider />
+              <InfoField label="Created" value={fmtDate(contact?.createdAt)} divider />
+              <InfoField label="Modified" value={fmtDate(contact?.modifiedAt)} divider />
+            </View>
 
             {/* Attributes */}
             {attrKeys.length > 0 ? (
               <>
                 <Text style={styles.section}>Attributes</Text>
-                <Card>
+                <View style={styles.listCard}>
                   {attrKeys.map((k, i) => (
-                    <View key={k}>
-                      {i > 0 ? <Divider /> : null}
-                      <InfoRow label={k} value={String(attrs[k])} />
-                    </View>
+                    <InfoField key={k} label={k} value={String(attrs[k])} divider={i > 0} />
                   ))}
-                </Card>
+                </View>
               </>
             ) : null}
-          </ScrollView>
 
-          <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
+            <View style={{ height: spacing.xl }} />
             <Button
-              variant="primary"
-              fullWidth
-              title="Edit Contact"
-              icon="create-outline"
-              onPress={() => router.push({ pathname: "/contact/form", params: { id: String(contact?.id) } })}
-              testID="edit-contact-button"
-            />
-            <View style={{ height: spacing.sm }} />
-            <Button
-              variant="destructiveGhost"
+              variant="destructiveOutline"
               fullWidth
               title="Delete contact"
               icon="trash-outline"
@@ -311,7 +330,7 @@ export default function ContactDetail() {
               }}
               testID="delete-contact-button"
             />
-          </View>
+          </ScrollView>
 
           <ConfirmDialog
             visible={confirmOpen}
@@ -340,61 +359,57 @@ export default function ContactDetail() {
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoField({ label, value, divider }: { label: string; value: string; divider?: boolean }) {
   return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue} numberOfLines={2}>
+    <View style={[styles.field, divider && styles.rowDivider]}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={styles.fieldValue} selectable>
         {value}
       </Text>
     </View>
   );
 }
 
-function ActivityCard({ label, value }: { label: string; value: string }) {
+function ActivityCell({ label, value, testID }: { label: string; value: string; testID?: string }) {
   return (
-    <View style={styles.activityCard}>
+    <View style={styles.activityCell} testID={testID}>
       <Text style={styles.activityValue}>{value}</Text>
       <Text style={styles.activityLabel}>{label}</Text>
     </View>
   );
 }
 
-function Tag({ label, tone }: { label: string; tone: "success" | "error" | "warning" }) {
+function Tag({ label, tone }: { label: string; tone: "success" | "error" }) {
   const map = {
-    success: { bg: colors.successBg, fg: colors.successText },
-    error: { bg: colors.errorBg, fg: colors.errorText },
-    warning: { bg: colors.warningBg, fg: colors.warningText },
+    success: { bg: colors.successBg, fg: colors.successText, dot: colors.success, border: colors.successBorder },
+    error: { bg: colors.errorBg, fg: colors.errorText, dot: colors.error, border: colors.errorBorder },
   }[tone];
   return (
-    <View style={[styles.tag, { backgroundColor: map.bg }]}>
+    <View style={[styles.tag, { backgroundColor: map.bg, borderColor: map.border }]}>
+      <View style={[styles.tagDot, { backgroundColor: map.dot }]} />
       <Text style={[styles.tagText, { color: map.fg }]}>{label}</Text>
     </View>
   );
 }
 
-function Divider() {
-  return <View style={styles.divider} />;
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  profile: { alignItems: "center", paddingVertical: spacing.lg },
-  email: { fontSize: font.xl, fontWeight: "800", color: colors.onSurface, marginTop: spacing.md },
-  name: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: 2 },
-  badges: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
-  section: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface, marginTop: spacing.xl, marginBottom: spacing.md },
-  activityRow: { flexDirection: "row", gap: spacing.md },
-  activityCard: {
-    flex: 1,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
-    paddingVertical: spacing.lg,
-    alignItems: "center",
-  },
-  activityValue: { fontSize: font.xxl, fontWeight: "800", color: colors.onSurface },
-  activityLabel: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  emptyHistory: { fontSize: font.base, color: colors.onSurfaceTertiary },
+  topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg },
+  backLink: { flexDirection: "row", alignItems: "center", minHeight: 44, marginLeft: -6 },
+  editBtn: { minHeight: 44, minWidth: 44, alignItems: "flex-end", justifyContent: "center" },
+  linkText: { fontSize: font.lg, color: colors.accent, fontFamily: fonts.medium },
+  profile: { alignItems: "center", paddingTop: spacing.sm, paddingBottom: spacing.sm },
+  title: { fontSize: font.xl + 2, fontFamily: fonts.bold, color: colors.onSurface, marginTop: spacing.md, textAlign: "center" },
+  subtitle: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: 2, textAlign: "center" },
+  badges: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.sm, marginTop: spacing.md },
+  section: { fontSize: font.lg + 2, fontFamily: fonts.bold, color: colors.onSurface, marginTop: spacing.xl, marginBottom: spacing.md },
+  sectionMuted: { fontSize: font.base, fontFamily: fonts.medium, color: colors.onSurfaceSecondary },
+  activityCard: { flexDirection: "row", borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, overflow: "hidden" },
+  activityCell: { flex: 1, alignItems: "center", paddingVertical: spacing.md },
+  vDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  activityValue: { fontSize: font.xxl, fontFamily: fonts.bold, color: colors.onSurface },
+  activityLabel: { fontSize: font.sm + 1, color: colors.onSurfaceSecondary, marginTop: 2 },
+  emptyHistory: { fontSize: font.base, color: colors.onSurfaceSecondary, marginTop: spacing.md, lineHeight: 20 },
   timeline: { marginTop: spacing.xs },
   tlRow: { flexDirection: "row", gap: spacing.md },
   tlGutter: { width: 12, alignItems: "center" },
@@ -404,21 +419,15 @@ const styles = StyleSheet.create({
   tlLabel: { fontSize: font.base, color: colors.onSurface, lineHeight: 20 },
   tlEvent: { fontFamily: fonts.semibold, color: colors.onSurface },
   tlDate: { fontSize: font.sm, color: colors.onSurfaceSecondary, marginTop: 2 },
-  infoRow: { flexDirection: "row", justifyContent: "space-between", gap: spacing.lg, paddingVertical: spacing.md },
-  infoLabel: { fontSize: font.base, color: colors.onSurfaceSecondary, fontWeight: "600" },
-  infoValue: { fontSize: font.base, color: colors.onSurface, fontWeight: "600", flexShrink: 1, textAlign: "right" },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider },
-  tag: { paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill },
-  tagText: { fontSize: font.sm, fontWeight: "700" },
-  footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    backgroundColor: colors.surface,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
+  listCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, overflow: "hidden" },
+  rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  field: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: 4 },
+  fieldLabel: { fontSize: font.base, color: colors.onSurfaceSecondary },
+  fieldValue: { fontSize: font.base + 1, color: colors.onSurface },
+  chanRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: 2 },
+  chanTag: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 },
+  chanText: { fontSize: font.sm + 1, fontFamily: fonts.semibold, color: colors.onSurfaceSecondary },
+  tag: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1 },
+  tagDot: { width: 6, height: 6, borderRadius: 3 },
+  tagText: { fontSize: font.sm, fontFamily: fonts.semibold },
 });

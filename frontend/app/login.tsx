@@ -9,6 +9,7 @@ import { PrimaryButton, IconChip, Button } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
 import { DEMO_MODE } from "@/src/lib/demo-mode";
 import { useToast } from "@/src/context/ToastContext";
+import { openWeb, TERMS_URL, PRIVACY_URL } from "@/src/lib/open-web";
 
 const BREVO_LOGO = require("@/assets/brevo-logo-white.png");
 
@@ -102,7 +103,7 @@ export default function LoginScreen() {
 
   // Decoration is optional: scale down when space is limited, hide entirely
   // on very short viewports so logo + eyebrow + heading always stay clean.
-  const showCards = height >= 620;
+  const showCards = height >= 720;
   const compact = height < 780;
 
   return (
@@ -173,6 +174,15 @@ export default function LoginScreen() {
         <Text style={styles.legal}>
           Sign in securely with Brevo — we never see your password.
         </Text>
+        <View style={styles.legalLinks}>
+          <Text style={styles.legalLink} onPress={() => openWeb(TERMS_URL)} hitSlop={12} accessibilityRole="link" testID="login-terms-link">
+            Terms
+          </Text>
+          <Text style={styles.legal}>·</Text>
+          <Text style={styles.legalLink} onPress={() => openWeb(PRIVACY_URL)} hitSlop={12} accessibilityRole="link" testID="login-privacy-link">
+            Privacy
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -267,6 +277,13 @@ const styles = StyleSheet.create({
     color: colors.onSurfaceTertiary,
     textAlign: "center",
     lineHeight: 18,
+    fontFamily: fonts.regular,
+  },
+  legalLinks: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: spacing.sm },
+  legalLink: {
+    fontSize: font.sm,
+    color: colors.onSurfaceSecondary,
+    textDecorationLine: "underline",
     fontFamily: fonts.regular,
   },
   iframeNotice: { gap: spacing.md },

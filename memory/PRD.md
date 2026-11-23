@@ -83,3 +83,12 @@ Follow-up: replace API-key auth with **Brevo OAuth 2.0** login (mandatory login 
 - Backend readiness/send-now/schedule endpoints already existed (server.py ~501-665); schedule re-sends listIds/segmentIds + existing exclusions
 - Batch 2 leftovers fixed: 2-line tile labels ("click rate"), stacked confirm buttons <400px, unsupported recipients hint, "Keep paused"
 - Fixes: DST-safe offset for picked date, API error detail passed to app
+
+## UI Refresh Batch 4/4 — Contact detail, form, settings, login, clean-up (DONE)
+- Contact detail redesigned (back/Edit header, tinted avatar, subscription tags, 90-day activity card, contact info with channel tags, outline delete)
+- Contact form restyled (16 radius inputs, "Create contact"/"Save"); all 7 fields kept
+- Settings simplified: account card, Manage on Brevo web (4 links), App refresh toggle, Support help center, Sign out
+- Login: Terms · Privacy links; decorative cards hidden below 720px height
+- All Brevo web URLs are constants in src/lib/open-web.ts (user-confirmed)
+- Clean-up: fictional demo data, theme tokens for status pills, recipients diagnostic log removed, TS fixes, toast raised above campaign bottom bar
+- Settings/diagnostics and settings/permissions screens no longer linked from Settings (files remain)

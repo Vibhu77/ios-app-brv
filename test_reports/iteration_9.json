@@ -1,0 +1,41 @@
+{
+  "summary": "Batch 4/4 UI refresh. Frontend only, DEMO mode, 375x667. Window.open was intercepted to check URLs. PASS: Contact detail header has the 'Contacts' back link and 'Edit'. #1001 shows Received 3 / Opened 2 / Clicked 1 plus the 'Recent history' timeline. #1002 and #1004 show 0/0/0 with the exact empty text. #1002 has the red 'Email unsubscribed' tag; the others have the green 'Subscribed' tag. The Contact info card shows Email, Channels tags (Email/SMS, WhatsApp, Landline), Contact ID, Created and Modified. A phone-only contact's title falls back to the number. Edit opens the form with the 'Save' label and read-only email. 'Delete contact' opens the existing confirm ('Delete this contact?' / 'Keep contact'). Confirming deletes the contact, shows a toast and removes it from the list. FORM: all 7 field labels are present. 'Create contact' is pinned. Empty submit shows identifier-banner. WhatsApp-only and landline-only creates both show 'Contact created' with no Undo. A duplicate email shows the inline 'This email already belongs to another contact.' SETTINGS: account card shows avatar, name, email and chevron, and profile-row opens /settings/profile. Organization and Plan rows, the 4 web rows plus Help center, the App toggle (refresh-pref-switch toggles true→false→true) and Sign out are all exact. Every URL opened is exactly as specified. LOGIN: the Terms · Privacy links sit under the note and open termsofuse/privacypolicy; they are visible after sign out. CAMPAIGN: suspending #3 shows the 'Campaign suspended' toast at y=539-586, above the bottom bar at y=594, so 'Resume sending' is not covered. The #1 report opens .../marketing-campaign/report/1. Status pills render with theme-token colors. The schedule sheet recomputes its dates on open (code review). Issues: login hero headline is clipped at 375x667; the contact detail avatar is not tinted; the Plan fallback lacks ' plan'; the toast covers the tab bar on tab screens. No deprecated Expo packages were detected.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Login hero headline", "issue": "At 375x667 the hero shrinks to its minHeight of 240 (flex:1 with overflow:hidden). The 'Your campaigns and contacts, on the go.' title spans y=227-299 but the hero ends at y=240, so the headline is cut off and mostly invisible. This most likely regressed when the Terms · Privacy row added height below. Fix: let the hero size to its content (no clipping), shrink the preview band (minHeight 140) on short screens, or wrap the screen in a ScrollView. Reference: app/login.tsx styles.hero / styles.preview.", "testID": "n/a (hero title)", "priority": "HIGH"},
+      {"component": "Contact detail avatar", "issue": "The spec asks for a tinted avatar, but the detail renders a grey avatar. <Avatar label={title} size={80} /> is called without colorId, while the Contacts list passes colorId={c.id} (tinted). As a result the same contact is tinted in the list and grey in the detail. Fix: add colorId={contact?.id}. Reference: app/contact/[id].tsx:232", "testID": "contact-title (avatar above)", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings Plan row", "issues": ["The demo account has no planName, so the fallback renders 'Subscription · renews 31 Dec 2026' instead of the spec format '<X> plan · renews <date>'. The plan.type fallback does not append ' plan' (settings.tsx:101-103). The demo fixture (src/demo/fixtures.ts account) also lacks planName, so the primary path can't be seen in demo."]},
+      {"screen": "Tab screens (Contacts) toast", "issues": ["After 'Contact created' returns to the Contacts tab, the toast sits at y≈611-650, on top of the bottom tab bar, and hides the tab icons for 4s. setBottomOffset is only used on campaign detail. Consider an offset of tabBarHeight on tab screens."]},
+      {"screen": "Login / Settings", "issues": ["The Terms/Privacy links are about 34-43x31 px, below the 44pt touch target. Add padding or hitSlop.", "On web the refresh-pref-switch renders at 40x20. Confirm the whole row toggles, or give the switch a larger hit area."]},
+      {"screen": "Contact avatar for phone-only contacts", "issues": ["The initials become '+1' or '12' (digits from the phone number). Consider a person icon fallback when the label has no letters."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [".screenshots/l1, c1001, c1002, c1004, f_edit, del_confirm, f_empty, f_wa_toast, f_dup_email, s_top, s_toggle, s_profile, list, suspend_toast, new_detail"],
+  "action_items": [
+    "HIGH: Fix the login hero headline clipping at 375x667 (app/login.tsx hero/preview flex + minHeight + overflow hidden).",
+    "MEDIUM: Tint the contact detail avatar: <Avatar label={title} size={80} colorId={contact?.id} /> (app/contact/[id].tsx:232).",
+    "MINOR: In the Plan fallback, append ' plan' (e.g. 'Subscription plan · renews ...'), or add planName to the demo account fixture.",
+    "MINOR: Lift the toast above the tab bar on tab screens (e.g. setBottomOffset(tabBarHeight) or a default offset inside tabs).",
+    "MINOR: Raise the Terms/Privacy touch targets to 44pt using hitSlop or padding.",
+    "MINOR (pre-existing): Deep-linking or reloading /contact/form redirects to /login and then to tabs, because the token is restored asynchronously and `if (!token) return <Redirect href='/login'/>` runs before restore finishes. Wait for session hydration before redirecting."
+  ],
+  "critical_code_review_comments": [
+    "open-web.ts holds every URL, exactly as specified; webCampaignReportUrl/EditUrl replace <id>. Good.",
+    "The demo createContact only simulates duplicate *email*, so the inline WhatsApp/landline/SMS/ext_id duplicate branches (form.tsx:263-266) can't be exercised in demo. They rely on message substring matching ('whatsapp', 'landline', 'sms', 'phone'), which is fragile with real Brevo messages. Prefer the backend 'field' tag when it is present.",
+    "Contact detail still renders a separate 'Attributes' card below Contact info. The spec doesn't mention it, and it duplicates SMS/WHATSAPP/name values. Confirm it is intended.",
+    "Contact 1001's SMS '+447700900123' (a UK drama-range number) is not resolved to a country by splitStored, so the edit form shows a US +1 flag with '+447700900123' in the national field. Because only changed phones are sent, this is harmless unless the user touches the field. Demo fixture edge case.",
+    "The timeline uses delivered ?? messagesSent while 'Received' counts messagesSent. They are consistent in demo but may diverge with real data.",
+    "campaign/[id].tsx is 744 lines (>700). Consider splitting."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "92% (all requested flows functional; 1 HIGH visual regression on login, 1 spec miss on avatar tint)"},
+  "seed_data_creation": "None persisted. In-memory demo contacts created via the form (WhatsApp +12015550177, landline +12015550178/+12015550199). They reset on reload.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "DEMO mode: on /login, tap login-demo-button, then page.goto deep links works, except /contact/form, which redirects on reload. Open the form via add-contact-fab on /contacts instead. Demo contacts: 1001 has activity; 1002 has blacklisted email and no activity; 1003 SMS only; 1004 WhatsApp only; 1005 landline only; 1006 ext_id only. The demo only raises duplicate errors for email. Intercept URLs with add_init_script overriding window.open (expo-web-browser uses it on web). help-center-row sits under the tab bar at first scroll, so use a non-force click (Playwright scrolls it into view) instead of force=True."
+}

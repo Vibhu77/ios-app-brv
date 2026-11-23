@@ -65,7 +65,6 @@ function defaultPick() {
 
 const HOURS = [...Array(24)].map((_, h) => pad(h));
 const MINUTES = [...Array(12)].map((_, i) => pad(i * 5));
-const DATES = [...Array(DAYS_AHEAD)].map((_, d) => dayLabel(dayFromToday(d)));
 
 export function ScheduleSheet({
   visible,
@@ -90,10 +89,13 @@ export function ScheduleSheet({
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // Date labels from "today", recomputed each time the sheet opens (app may stay open past midnight).
+  const [dates, setDates] = useState<string[]>([]);
 
   // Fresh defaults every time the sheet opens.
   useEffect(() => {
     if (visible) {
+      setDates([...Array(DAYS_AHEAD)].map((_, d) => dayLabel(dayFromToday(d))));
       setMode("now");
       setPick(defaultPick());
       setOpenWheel("time");
@@ -224,7 +226,7 @@ export function ScheduleSheet({
                   {openWheel === "date" ? (
                     <View style={styles.wheelWrap}>
                       <Wheel
-                        items={DATES}
+                        items={dates}
                         index={pick.offset}
                         onChange={(i) => setPick((p) => ({ ...p, offset: i }))}
                         width={220}
@@ -342,7 +344,7 @@ function Wheel({
   width: number;
   testID?: string;
 }) {
-  const ref = useRef<ScrollView>(null);
+  const ref = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [live, setLive] = useState(index);
 

@@ -5,9 +5,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts, shadow } from "@/src/theme";
 
 type ToastType = "success" | "error" | "info" | "warning";
-type Ctx = { show: (message: string, type?: ToastType) => void };
+// setBottomOffset: lift the toast above a screen's sticky bottom bar (0 = default).
+type Ctx = { show: (message: string, type?: ToastType) => void; setBottomOffset: (px: number) => void };
 
-const ToastContext = createContext<Ctx>({ show: () => {} });
+const ToastContext = createContext<Ctx>({ show: () => {}, setBottomOffset: () => {} });
 
 const TYPE_STYLES: Record<ToastType, { bg: string; fg: string; icon: keyof typeof Ionicons.glyphMap }> = {
   success: { bg: colors.successBg, fg: colors.successText, icon: "checkmark-circle" },
@@ -21,6 +22,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [message, setMessage] = useState("");
   const [type, setType] = useState<ToastType>("info");
   const [visible, setVisible] = useState(false);
+  const [bottomOffset, setBottomOffset] = useState(0);
   const opacity = useRef(new Animated.Value(0)).current;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -48,12 +50,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const s = TYPE_STYLES[type];
 
   return (
-    <ToastContext.Provider value={{ show }}>
+    <ToastContext.Provider value={{ show, setBottomOffset }}>
       {children}
       {visible ? (
         <Animated.View
           pointerEvents="box-none"
-          style={[styles.wrap, { bottom: insets.bottom + spacing.lg, opacity }]}
+          style={[styles.wrap, { bottom: bottomOffset > 0 ? bottomOffset + spacing.sm : insets.bottom + spacing.lg, opacity }]}
         >
           <View pointerEvents="box-none" style={[styles.toast, { backgroundColor: s.bg }]} testID="app-toast">
             <Ionicons name={s.icon} size={20} color={s.fg} />

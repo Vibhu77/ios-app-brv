@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { Button } from "@/src/components/common";
 import { useBrevo } from "@/src/context/BrevoContext";
-import { openWeb } from "@/src/lib/open-web";
+import { openWeb, WEB_ACCOUNT_URL } from "@/src/lib/open-web";
 import { cache, cacheKeys } from "@/src/lib/cache";
 import { Account } from "@/src/lib/brevo";
 
@@ -92,7 +92,7 @@ export default function ProfileScreen() {
             variant="secondary"
             title="Edit on Brevo web"
             icon="open-outline"
-            onPress={() => openWeb("https://app.brevo.com/profile/information")}
+            onPress={() => openWeb(WEB_ACCOUNT_URL)}
             fullWidth
             testID="profile-edit-web-button"
           />

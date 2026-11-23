@@ -13,9 +13,9 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { BrevoProvider } from "@/src/context/BrevoContext";
 import { ToastProvider } from "@/src/context/ToastContext";
 import { prefs } from "@/src/lib/prefs";
+import { HELP_CENTER_URL } from "@/src/lib/open-web";
 import { colors, spacing, fonts, font } from "@/src/theme";
 
-const SUPPORT_URL = "https://help.brevo.com/";
 
 // Root error boundary (Expo Router): render a friendly screen instead of a
 // blank/red crash. Never surfaces the error text/stack to the user; logs it in
@@ -39,7 +39,7 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Pro
         </View>
         <Text style={ebStyles.supportLine}>
           If it still does not work,{" "}
-          <Text style={ebStyles.link} onPress={() => Linking.openURL(SUPPORT_URL)}>
+          <Text style={ebStyles.link} onPress={() => Linking.openURL(HELP_CENTER_URL)}>
             contact our Support team
           </Text>
           .

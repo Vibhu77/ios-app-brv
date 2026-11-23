@@ -123,7 +123,7 @@ export function SettingsRow({
         <Switch
           value={switchValue}
           onValueChange={onSwitchChange}
-          trackColor={{ false: colors.borderStrong, true: colors.success }}
+          trackColor={{ false: colors.borderStrong, true: colors.accent }}
           thumbColor="#FFFFFF"
           accessibilityLabel={switchAccessibilityLabel || label}
           accessibilityRole="switch"

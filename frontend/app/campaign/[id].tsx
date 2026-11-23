@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, View, ScrollView, Modal, Pressable, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -141,6 +141,14 @@ export default function CampaignDetail() {
       load();
     }
   }, [token, load]);
+
+  // Toasts sit above the sticky bottom bar while this screen is open.
+  const hasBar = !!campaign;
+  const { setBottomOffset } = toast;
+  useEffect(() => {
+    if (!hasBar) setBottomOffset(0);
+    return () => setBottomOffset(0);
+  }, [hasBar, setBottomOffset]);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -443,7 +451,11 @@ export default function CampaignDetail() {
           </ScrollView>
 
           {barAction ? (
-            <View style={[styles.bar, { paddingBottom: insets.bottom + spacing.md }]} testID="campaign-bottom-bar">
+            <View
+              style={[styles.bar, { paddingBottom: insets.bottom + spacing.md }]}
+              onLayout={(e) => toast.setBottomOffset(e.nativeEvent.layout.height)}
+              testID="campaign-bottom-bar"
+            >
               <Button
                 fullWidth
                 title={barAction.title}

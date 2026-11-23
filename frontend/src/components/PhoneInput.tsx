@@ -12,7 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { CountryCode } from "libphonenumber-js";
-import { colors, spacing, radius, font } from "@/src/theme";
+import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { countryList, dialCode, CountryItem } from "@/src/lib/phone";
 
 export function PhoneField({
@@ -163,7 +163,7 @@ function CountryPicker({
 const styles = StyleSheet.create({
   label: {
     fontSize: font.base,
-    fontWeight: "700",
+    fontFamily: fonts.semibold,
     color: colors.onSurface,
     marginBottom: spacing.sm,
     marginTop: spacing.lg,
@@ -171,8 +171,8 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     height: 52,

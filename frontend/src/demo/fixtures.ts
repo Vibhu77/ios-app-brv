@@ -11,7 +11,7 @@ export const demoAccount: Account = {
   firstName: "Avery",
   lastName: "Nguyen",
   companyName: "Acme Demo Co.",
-  address: { street: "#SE-50, ACL Colony", zipCode: "171102", city: "Darlaghat, Distt. Solan", country: "India" },
+  address: { street: "1 Sample Street", zipCode: "75001", city: "Paris", country: "France" },
   plan: { type: "subscription", creditsType: "sendLimit", credits: 20000, startDate: "2026-01-01", endDate: "2026-12-31" },
   planVerticals: { email: { credits: 20000 }, sms: { credits: 500 } },
 };
@@ -165,9 +165,9 @@ const LAST = ["Smith", "Johnson", "Brown", "Garcia", "Miller", "Davis", "Rodrigu
 export function makeContacts(): (Contact & { ext_id?: string })[] {
   // --- Edge-case contacts first (stable ids) ---
   const edge: (Contact & { ext_id?: string })[] = [
-    mkContact(1001, "active.user@acme-demo.com", { FIRSTNAME: "Active", LASTNAME: "User", SMS: "+919788824675" }), // has campaign activity
+    mkContact(1001, "active.user@acme-demo.com", { FIRSTNAME: "Active", LASTNAME: "User", SMS: "+447700900123" }), // has campaign activity
     mkContact(1002, "email.only@acme-demo.com", { FIRSTNAME: "Email", LASTNAME: "Only" }), // email only
-    mkContact(1003, "", { FIRSTNAME: "Sms", LASTNAME: "Only", SMS: "+919788824675" }), // SMS only (+91)
+    mkContact(1003, "", { FIRSTNAME: "Sms", LASTNAME: "Only", SMS: "+447700900456" }), // SMS only (+44)
     mkContact(1004, "", { FIRSTNAME: "Whats", LASTNAME: "App", WHATSAPP: "4512345678" }), // WhatsApp only (Denmark)
     mkContact(1005, "", { FIRSTNAME: "Land", LASTNAME: "Line", LANDLINE_NUMBER: "+6581234567" }), // landline only (Singapore)
     mkContact(1006, "", { FIRSTNAME: "Ext", LASTNAME: "Id" }, "crm-ext-9001"), // ext_id only

@@ -8,7 +8,7 @@ import {
   KeyboardStickyView,
 } from "react-native-keyboard-controller";
 import { CountryCode } from "libphonenumber-js";
-import { colors, spacing, radius, font } from "@/src/theme";
+import { colors, spacing, radius, font, fonts } from "@/src/theme";
 import { Button, Loader } from "@/src/components/common";
 import { PhoneField } from "@/src/components/PhoneInput";
 import { useBrevo } from "@/src/context/BrevoContext";
@@ -290,7 +290,7 @@ export default function ContactForm() {
         <Pressable onPress={goBack} hitSlop={12} testID="form-close-button">
           <Ionicons name="close" size={26} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.headerTitle}>{isEdit ? "Edit Contact" : "New Contact"}</Text>
+        <Text style={styles.headerTitle}>{isEdit ? "Edit contact" : "New contact"}</Text>
         <View style={{ width: 26 }} />
       </View>
 
@@ -374,7 +374,7 @@ export default function ContactForm() {
                 onChangeNational={(v) => setPhoneNational(key, v)}
                 error={fieldErrors[key]}
                 hint={idHint}
-                placeholder="9788824675"
+                placeholder="7700 900123"
                 testIDPrefix={`form-phone-${key}`}
               />
             ))}
@@ -410,8 +410,7 @@ export default function ContactForm() {
               <Button
                 variant="primary"
                 fullWidth
-                title={isEdit ? "Save Changes" : "Create Contact"}
-                icon="checkmark"
+                title={isEdit ? "Save" : "Create contact"}
                 onPress={onSave}
                 loading={saving}
                 disabled={saving}
@@ -436,13 +435,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
-  headerTitle: { fontSize: font.lg, fontWeight: "700", color: colors.onSurface },
-  label: { fontSize: font.base, fontWeight: "700", color: colors.onSurface, marginBottom: spacing.sm, marginTop: spacing.lg },
+  headerTitle: { fontSize: font.lg, fontFamily: fonts.semibold, color: colors.onSurface },
+  label: { fontSize: font.base, fontFamily: fonts.semibold, color: colors.onSurface, marginBottom: spacing.sm, marginTop: spacing.lg },
   labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   counter: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.lg },
   input: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     paddingHorizontal: spacing.lg,
     height: 52,
     fontSize: font.lg,
@@ -450,7 +449,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  inputDisabled: { opacity: 0.6 },
+  inputDisabled: { backgroundColor: colors.surfaceSecondary, color: colors.onSurfaceSecondary },
   inputError: { borderColor: colors.error },
   errorText: { color: colors.error, fontSize: font.sm, marginTop: spacing.xs },
   hint: { fontSize: font.sm, color: colors.onSurfaceTertiary, marginTop: spacing.xs },
@@ -469,7 +468,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     backgroundColor: colors.surface,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 1,
     borderTopColor: colors.border,
   },
 });
